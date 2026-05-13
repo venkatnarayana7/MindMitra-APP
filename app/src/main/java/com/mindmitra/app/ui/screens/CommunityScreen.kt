@@ -1,10 +1,17 @@
 package com.mindmitra.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,89 +29,129 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.mindmitra.app.navigation.Routes
+import coil.compose.AsyncImage
+import com.mindmitra.app.data.community.CommunityPost
 import com.mindmitra.app.ui.theme.AccentLavender
-import com.mindmitra.app.ui.theme.BottomNavBg
 import com.mindmitra.app.ui.theme.CardSurface
 import com.mindmitra.app.ui.theme.DeepNavy
 import com.mindmitra.app.ui.theme.PrimaryPurple
 import com.mindmitra.app.ui.theme.TextHint
 import com.mindmitra.app.ui.theme.TextPrimary
 import com.mindmitra.app.ui.theme.TextSecondary
-
-private data class CommunityPost(
-    val id: Int,
-    val timeAgo: String,
-    val content: String,
-    val tags: List<String> = emptyList(),
-    val likes: Int = 0,
-    val comments: Int = 0,
-    val hasImage: Boolean = false,
-    val isLiked: Boolean = false,
-    val isSaved: Boolean = false
-)
+import com.mindmitra.app.ui.viewmodel.AuthViewModel
+import com.mindmitra.app.ui.viewmodel.CommunityViewModel
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 private data class StoryUser(val avatar: String, val name: String, val hasStory: Boolean = true)
 
+private fun String.toRelativeTime(): String = try {
+    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+    sdf.timeZone = TimeZone.getTimeZone("UTC")
+    val then = sdf.parse(this) ?: return "recently"
+    val mins = (Date().time - then.time) / 60_000
+    when {
+        mins < 1    -> "just now"
+        mins < 60   -> "${mins}m ago"
+        mins < 1440 -> "${mins / 60}h ago"
+        mins < 10080 -> "${mins / 1440}d ago"
+        else         -> "${mins / 10080}w ago"
+    }
+} catch (_: Exception) { "recently" }
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CommunityScreen(navController: NavController) {
+fun CommunityScreen(
+    navController: NavController,
+    communityViewModel: CommunityViewModel = viewModel(),
+    authViewModel: AuthViewModel = viewModel()
+) {
+    val posts = communityViewModel.posts
+    val listState = rememberLazyListState()
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            val total = listState.layoutInfo.totalItemsCount
+            last != null && total > 0 && last.index >= total - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && !communityViewModel.isLoading && !communityViewModel.isRefreshing)
+            communityViewModel.loadFeed()
+    }
+
+    val currentUserId = authViewModel.storedEmail.ifBlank { "user_local" }
+    val currentUserName = authViewModel.storedDisplayName()
+    val currentAvatar = if (authViewModel.isMale) "🧠" else "💗"
+
     var showPostDialog by remember { mutableStateOf(false) }
     var newPostText by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
     val selectedPostTags = remember { mutableStateListOf<String>() }
     var hasSelectedImage by remember { mutableStateOf(false) }
+
+    val commentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val scope = rememberCoroutineScope()
+    var commentText by remember { mutableStateOf("") }
 
     val stories = remember {
         listOf(
@@ -115,43 +162,6 @@ fun CommunityScreen(navController: NavController) {
             StoryUser("🌊", "Priya"),
             StoryUser("🔮", "Vikram"),
             StoryUser("🌈", "Divya"),
-        )
-    }
-
-    val posts = remember {
-        mutableStateListOf(
-            CommunityPost(
-                id = 1,
-                timeAgo = "3 hours ago",
-                content = "Some days are just hard. And that's okay. You're stronger than you think. 🌸",
-                tags = listOf("Life", "Motivation"),
-                likes = 124,
-                comments = 32
-            ),
-            CommunityPost(
-                id = 2,
-                timeAgo = "3 hours ago",
-                content = "Grateful for the small things that make life better.",
-                hasImage = true,
-                likes = 89,
-                comments = 14
-            ),
-            CommunityPost(
-                id = 3,
-                timeAgo = "5 hours ago",
-                content = "Taking things one breath at a time. Anxiety is real, but so is your strength. 💙",
-                tags = listOf("Anxiety", "Support"),
-                likes = 201,
-                comments = 47
-            ),
-            CommunityPost(
-                id = 4,
-                timeAgo = "Yesterday",
-                content = "Reminder: it's okay to not be okay. Healing isn't linear. Be patient with yourself. ✨",
-                tags = listOf("Healing"),
-                likes = 315,
-                comments = 68
-            ),
         )
     }
 
@@ -169,17 +179,20 @@ fun CommunityScreen(navController: NavController) {
             }
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(DeepNavy)
-                .statusBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Stories row
-            item {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Stories row
+                item {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(vertical = 4.dp)
@@ -223,30 +236,185 @@ fun CommunityScreen(navController: NavController) {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                items(posts, key = { it.id }) { post ->
-                    PostCard(
+                // Live feed from AWS DynamoDB
+                items(posts, key = { it.postId }) { post ->
+                    LivePostCard(
                         post = post,
-                        onLike = {
-                            val index = posts.indexOf(post)
-                            if (index >= 0) {
-                                posts[index] = post.copy(
-                                    isLiked = !post.isLiked,
-                                    likes = if (post.isLiked) post.likes - 1 else post.likes + 1
-                                )
-                            }
-                        },
-                        onSave = {
-                            val index = posts.indexOf(post)
-                            if (index >= 0) {
-                                posts[index] = post.copy(isSaved = !post.isSaved)
-                            }
+                        onLike = { communityViewModel.toggleLike(post.postId, currentUserId) },
+                        onSave = { communityViewModel.toggleSave(post.postId) },
+                        onComment = {
+                            communityViewModel.openComments(post.postId)
+                            scope.launch { commentSheetState.show() }
                         }
                     )
                 }
+
+                // Loading indicator
+                if (communityViewModel.isLoading) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                            CircularProgressIndicator(
+                                color = AccentLavender, strokeWidth = 2.dp,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Empty state
+                if (!communityViewModel.isLoading && posts.isEmpty() && communityViewModel.feedError == null) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🌱", fontSize = 40.sp)
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "Be the first to share something",
+                                    fontSize = 14.sp, color = TextSecondary, textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Error / retry
+                communityViewModel.feedError?.let { err ->
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Could not load feed", fontSize = 13.sp, color = TextSecondary)
+                                Spacer(Modifier.height(8.dp))
+                                TextButton(onClick = { communityViewModel.loadFeed(refresh = true) }) {
+                                    Text("Retry", color = AccentLavender)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Refresh indicator
+            AnimatedVisibility(
+                visible = communityViewModel.isRefreshing,
+                enter = fadeIn(), exit = fadeOut(),
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding()
+            ) {
+                Box(Modifier.padding(top = 60.dp), Alignment.Center) {
+                    CircularProgressIndicator(
+                        color = AccentLavender, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
         }
     }
 
-    // ── New Post Dialog ────────────────────────────────────────────────────────
+    // ── Comment Bottom Sheet ──────────────────────────────────────────────────
+    if (communityViewModel.commentSheetPostId != null) {
+        ModalBottomSheet(
+            onDismissRequest = { communityViewModel.closeComments(); commentText = "" },
+            sheetState = commentSheetState,
+            containerColor = CardSurface,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 10.dp)
+                        .size(width = 40.dp, height = 4.dp)
+                        .background(TextHint, RoundedCornerShape(2.dp))
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Text(
+                    "Comments",
+                    fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                if (communityViewModel.commentsLoading) {
+                    Box(Modifier.fillMaxWidth().height(80.dp), Alignment.Center) {
+                        CircularProgressIndicator(
+                            color = AccentLavender, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
+                        )
+                    }
+                } else if (communityViewModel.comments.isEmpty()) {
+                    Text(
+                        "No comments yet. Be the first! 💬",
+                        fontSize = 13.sp, color = TextSecondary,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.height(300.dp)) {
+                        items(communityViewModel.comments, key = { it.commentId }) { c ->
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .background(Color(0xFF252248), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) { Text(c.userAvatar, fontSize = 14.sp) }
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        c.userName,
+                                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary
+                                    )
+                                    Text(c.text, fontSize = 13.sp, color = TextSecondary, lineHeight = 18.sp)
+                                    Text(c.createdAt.toRelativeTime(), fontSize = 11.sp, color = TextHint)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = commentText,
+                        onValueChange = { commentText = it },
+                        placeholder = { Text("Add a comment…", color = TextHint, fontSize = 13.sp) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(20.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedBorderColor = AccentLavender,
+                            unfocusedBorderColor = PrimaryPurple.copy(alpha = 0.3f),
+                            cursorColor = AccentLavender,
+                            focusedContainerColor = Color(0xFF12103A),
+                            unfocusedContainerColor = Color(0xFF12103A)
+                        )
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    val postId = communityViewModel.commentSheetPostId ?: ""
+                    IconButton(
+                        onClick = {
+                            if (commentText.isNotBlank()) {
+                                communityViewModel.addComment(
+                                    postId, currentUserId, currentUserName, currentAvatar, commentText
+                                )
+                                commentText = ""
+                            }
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.Send, null,
+                            tint = if (commentText.isNotBlank()) AccentLavender else TextHint,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // ── New Post Dialog ───────────────────────────────────────────────────────
     if (showPostDialog) {
         val popularTags = listOf("motivation", "anxiety", "wellness", "healing", "mindfulness", "selfcare", "mentalhealth", "gratitude")
         fun dismissDialog() {
@@ -264,7 +432,6 @@ fun CommunityScreen(navController: NavController) {
                         .padding(20.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -275,10 +442,8 @@ fun CommunityScreen(navController: NavController) {
                             Icon(Icons.Default.Close, "Close", tint = TextSecondary, modifier = Modifier.size(18.dp))
                         }
                     }
-
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Caption input
                     OutlinedTextField(
                         value = newPostText,
                         onValueChange = { newPostText = it },
@@ -296,10 +461,8 @@ fun CommunityScreen(navController: NavController) {
                             unfocusedContainerColor = Color(0xFF12103A)
                         )
                     )
-
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Image attachment area
                     if (!hasSelectedImage) {
                         Row(
                             modifier = Modifier
@@ -328,8 +491,11 @@ fun CommunityScreen(navController: NavController) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0820), Color(0xFF1A1040), Color(0xFF0D0820))))
                                 drawCircle(
-                                    brush = Brush.radialGradient(listOf(Color(0x60A090FF), Color(0x20604ABB), Color.Transparent),
-                                        center = Offset(size.width * 0.5f, size.height * 0.4f), radius = size.width * 0.3f),
+                                    brush = Brush.radialGradient(
+                                        listOf(Color(0x60A090FF), Color(0x20604ABB), Color.Transparent),
+                                        center = Offset(size.width * 0.5f, size.height * 0.4f),
+                                        radius = size.width * 0.3f
+                                    ),
                                     radius = size.width * 0.3f, center = Offset(size.width * 0.5f, size.height * 0.4f)
                                 )
                                 val mp = Path().apply {
@@ -339,28 +505,25 @@ fun CommunityScreen(navController: NavController) {
                                     lineTo(w * 0.75f, h * 0.6f); lineTo(w, h * 0.65f); lineTo(w, h); close()
                                 }
                                 drawPath(mp, Color(0xFF060412))
-                                listOf(Offset(size.width * 0.15f, size.height * 0.15f), Offset(size.width * 0.35f, size.height * 0.1f),
-                                    Offset(size.width * 0.65f, size.height * 0.12f), Offset(size.width * 0.82f, size.height * 0.2f)
+                                listOf(
+                                    Offset(size.width * 0.15f, size.height * 0.15f),
+                                    Offset(size.width * 0.35f, size.height * 0.1f),
+                                    Offset(size.width * 0.65f, size.height * 0.12f),
+                                    Offset(size.width * 0.82f, size.height * 0.2f)
                                 ).forEach { drawCircle(Color(0x90FFFFFF), 1.8f, it) }
                             }
-                            // Remove button
                             Box(
                                 modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(8.dp)
+                                    .align(Alignment.TopEnd).padding(8.dp)
                                     .background(Color(0x99000000), RoundedCornerShape(8.dp))
                                     .clickable { hasSelectedImage = false }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text("✕ Remove", fontSize = 11.sp, color = Color.White)
-                            }
+                            ) { Text("✕ Remove", fontSize = 11.sp, color = Color.White) }
                             Text("🌄", fontSize = 32.sp, modifier = Modifier.align(Alignment.Center))
                         }
                     }
-
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Tag input row
                     Text("Add Hashtags", fontSize = 12.sp, color = TextHint, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
@@ -402,7 +565,6 @@ fun CommunityScreen(navController: NavController) {
                         ) { Text("Add", fontSize = 13.sp, color = Color.White) }
                     }
 
-                    // Selected tag chips
                     if (selectedPostTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -416,16 +578,16 @@ fun CommunityScreen(navController: NavController) {
                                 ) {
                                     Text("#$tag", fontSize = 12.sp, color = AccentLavender)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(Icons.Default.Close, null, tint = AccentLavender.copy(0.7f),
-                                        modifier = Modifier.size(12.dp).clickable { selectedPostTags.remove(tag) })
+                                    Icon(
+                                        Icons.Default.Close, null, tint = AccentLavender.copy(0.7f),
+                                        modifier = Modifier.size(12.dp).clickable { selectedPostTags.remove(tag) }
+                                    )
                                 }
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-
-                    // Popular tag suggestions
                     Text("Popular tags", fontSize = 11.sp, color = TextHint)
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -437,41 +599,42 @@ fun CommunityScreen(navController: NavController) {
                                         if (isAdded) PrimaryPurple.copy(0.28f) else Color(0xFF1E1B4A),
                                         RoundedCornerShape(20.dp)
                                     )
-                                    .border(1.dp, if (isAdded) AccentLavender.copy(0.5f) else PrimaryPurple.copy(0.2f), RoundedCornerShape(20.dp))
+                                    .border(
+                                        1.dp,
+                                        if (isAdded) AccentLavender.copy(0.5f) else PrimaryPurple.copy(0.2f),
+                                        RoundedCornerShape(20.dp)
+                                    )
                                     .clickable { if (!isAdded) selectedPostTags.add(tag) else selectedPostTags.remove(tag) }
                                     .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
                                 Text(
-                                    "#$tag",
-                                    fontSize = 11.sp,
+                                    "#$tag", fontSize = 11.sp,
                                     color = if (isAdded) AccentLavender else TextSecondary
                                 )
                             }
                         }
                     }
-
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Action buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        TextButton(
-                            onClick = { dismissDialog() },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Cancel", color = TextSecondary) }
-
+                        TextButton(onClick = { dismissDialog() }, modifier = Modifier.weight(1f)) {
+                            Text("Cancel", color = TextSecondary)
+                        }
                         Button(
                             onClick = {
                                 val text = newPostText.trim()
                                 if (text.isNotEmpty()) {
-                                    val newId = (posts.maxOfOrNull { it.id } ?: 0) + 1
-                                    posts.add(0, CommunityPost(
-                                        id = newId, timeAgo = "Just now", content = text,
-                                        tags = selectedPostTags.toList(), hasImage = hasSelectedImage
-                                    ))
-                                    dismissDialog()
+                                    communityViewModel.createPost(
+                                        userId = currentUserId,
+                                        userName = currentUserName,
+                                        userAvatar = currentAvatar,
+                                        content = text,
+                                        tags = selectedPostTags.toList(),
+                                        onDone = { dismissDialog() }
+                                    )
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -487,8 +650,23 @@ fun CommunityScreen(navController: NavController) {
     }
 }
 
+// ── Post Card — same visual design, wired to live AWS data ───────────────────
+
 @Composable
-private fun PostCard(post: CommunityPost, onLike: () -> Unit, onSave: () -> Unit = {}) {
+private fun LivePostCard(
+    post: CommunityPost,
+    onLike: () -> Unit,
+    onSave: () -> Unit,
+    onComment: () -> Unit
+) {
+    var likeScale by remember { mutableStateOf(1f) }
+    val animScale by animateFloatAsState(
+        targetValue = likeScale,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        finishedListener = { likeScale = 1f },
+        label = "likeScale"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -501,112 +679,95 @@ private fun PostCard(post: CommunityPost, onLike: () -> Unit, onSave: () -> Unit
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Anonymous avatar
                 Box(
                     modifier = Modifier
                         .size(36.dp)
                         .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(Color(0xFF3A2F7A), Color(0xFF1E1B4A))
-                            ),
-                            shape = CircleShape
+                            Brush.radialGradient(listOf(Color(0xFF3A2F7A), Color(0xFF1E1B4A))),
+                            CircleShape
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = AccentLavender,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    val av = post.userAvatar
+                    if (av.isNotEmpty() && av.any { it.code > 127 }) {
+                        Text(av, fontSize = 18.sp)
+                    } else {
+                        Icon(Icons.Default.Person, null, tint = AccentLavender, modifier = Modifier.size(18.dp))
+                    }
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Anonymous",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = post.timeAgo,
-                        fontSize = 11.sp,
-                        color = TextHint
-                    )
+                    Text(post.userName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                    Text(post.createdAt.toRelativeTime(), fontSize = 11.sp, color = TextHint)
                 }
-                // Dismiss / more
                 Box(
                     modifier = Modifier
                         .size(28.dp)
-                        .background(Color(0xFF252248), CircleShape)
-                        .clickable { },
+                        .background(Color(0xFF252248), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "×", color = TextHint, fontSize = 16.sp, lineHeight = 16.sp)
+                    Text("×", color = TextHint, fontSize = 16.sp, lineHeight = 16.sp)
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Content text
-            Text(
-                text = post.content,
-                fontSize = 14.sp,
-                color = TextPrimary,
-                lineHeight = 21.sp
-            )
+            Text(post.content, fontSize = 14.sp, color = TextPrimary, lineHeight = 21.sp)
 
-            // Post image placeholder
+            // Image — real URL via Coil, or canvas placeholder
             if (post.hasImage) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(155.dp)
-                        .background(Color(0xFF0F0B2A), RoundedCornerShape(12.dp))
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Dark sky gradient
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color(0xFF0A0820), Color(0xFF1A1040), Color(0xFF0D0820))
+                if (!post.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = post.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .background(
+                                runCatching {
+                                    Color(android.graphics.Color.parseColor(
+                                        post.dominantColor.takeIf { it.startsWith("#") } ?: "#1E1B3C"
+                                    ))
+                                }.getOrDefault(Color(0xFF1E1B3C)),
+                                RoundedCornerShape(12.dp)
                             )
-                        )
-                        // Glowing orb
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(Color(0x60A090FF), Color(0x20604ABB), Color.Transparent),
-                                center = Offset(size.width * 0.5f, size.height * 0.45f),
-                                radius = size.width * 0.28f
-                            ),
-                            radius = size.width * 0.28f,
-                            center = Offset(size.width * 0.5f, size.height * 0.45f)
-                        )
-                        // Mountain silhouette
-                        val mountainPath = Path().apply {
-                            val w = size.width; val h = size.height
-                            moveTo(0f, h)
-                            lineTo(0f, h * 0.72f)
-                            lineTo(w * 0.15f, h * 0.55f)
-                            lineTo(w * 0.30f, h * 0.68f)
-                            lineTo(w * 0.45f, h * 0.48f)
-                            lineTo(w * 0.62f, h * 0.65f)
-                            lineTo(w * 0.78f, h * 0.52f)
-                            lineTo(w, h * 0.68f)
-                            lineTo(w, h)
-                            close()
-                        }
-                        drawPath(mountainPath, Color(0xFF060412))
-                        // Stars
-                        listOf(
-                            Offset(size.width * 0.12f, size.height * 0.15f),
-                            Offset(size.width * 0.28f, size.height * 0.08f),
-                            Offset(size.width * 0.55f, size.height * 0.12f),
-                            Offset(size.width * 0.72f, size.height * 0.06f),
-                            Offset(size.width * 0.88f, size.height * 0.18f),
-                            Offset(size.width * 0.40f, size.height * 0.22f),
-                        ).forEach { pos ->
-                            drawCircle(Color(0x90FFFFFF), radius = 1.8f, center = pos)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(155.dp)
+                            .background(Color(0xFF0F0B2A), RoundedCornerShape(12.dp))
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0820), Color(0xFF1A1040), Color(0xFF0D0820))))
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    listOf(Color(0x60A090FF), Color(0x20604ABB), Color.Transparent),
+                                    center = Offset(size.width * 0.5f, size.height * 0.45f),
+                                    radius = size.width * 0.28f
+                                ),
+                                radius = size.width * 0.28f,
+                                center = Offset(size.width * 0.5f, size.height * 0.45f)
+                            )
+                            val mountainPath = Path().apply {
+                                val w = size.width; val h = size.height
+                                moveTo(0f, h); lineTo(0f, h * 0.72f); lineTo(w * 0.15f, h * 0.55f)
+                                lineTo(w * 0.30f, h * 0.68f); lineTo(w * 0.45f, h * 0.48f)
+                                lineTo(w * 0.62f, h * 0.65f); lineTo(w * 0.78f, h * 0.52f)
+                                lineTo(w, h * 0.68f); lineTo(w, h); close()
+                            }
+                            drawPath(mountainPath, Color(0xFF060412))
+                            listOf(
+                                Offset(size.width * 0.12f, size.height * 0.15f),
+                                Offset(size.width * 0.28f, size.height * 0.08f),
+                                Offset(size.width * 0.55f, size.height * 0.12f),
+                                Offset(size.width * 0.72f, size.height * 0.06f),
+                                Offset(size.width * 0.88f, size.height * 0.18f),
+                                Offset(size.width * 0.40f, size.height * 0.22f),
+                            ).forEach { drawCircle(Color(0x90FFFFFF), radius = 1.8f, center = it) }
                         }
                     }
                 }
@@ -616,15 +777,13 @@ private fun PostCard(post: CommunityPost, onLike: () -> Unit, onSave: () -> Unit
             if (post.tags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    post.tags.forEach { tag ->
+                    post.tags.take(3).forEach { tag ->
                         Box(
                             modifier = Modifier
                                 .background(Color(0xFF2D2060), RoundedCornerShape(50.dp))
                                 .border(1.dp, AccentLavender.copy(alpha = 0.2f), RoundedCornerShape(50.dp))
                                 .padding(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text(text = tag, color = AccentLavender, fontSize = 11.sp)
-                        }
+                        ) { Text(tag, color = AccentLavender, fontSize = 11.sp) }
                     }
                 }
             }
@@ -636,105 +795,51 @@ private fun PostCard(post: CommunityPost, onLike: () -> Unit, onSave: () -> Unit
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Like
+                // Like with spring animation
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onLike() }
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        likeScale = 1.4f
+                        onLike()
+                    }
                 ) {
                     Icon(
-                        imageVector = if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        imageVector = if (post.isLikedByMe) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Like",
-                        tint = if (post.isLiked) AccentLavender else TextSecondary,
-                        modifier = Modifier.size(18.dp)
+                        tint = if (post.isLikedByMe) AccentLavender else TextSecondary,
+                        modifier = Modifier.size(18.dp).scale(animScale)
                     )
                     Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = post.likes.toString(),
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
+                    Text(post.likeCount.toString(), fontSize = 13.sp, color = TextSecondary)
                 }
 
                 Spacer(modifier = Modifier.width(22.dp))
 
-                // Comment
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { }
+                    modifier = Modifier.clickable { onComment() }
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ChatBubbleOutline,
-                        contentDescription = "Comment",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(17.dp)
-                    )
+                    Icon(Icons.Default.ChatBubbleOutline, "Comment", tint = TextSecondary, modifier = Modifier.size(17.dp))
                     Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = post.comments.toString(),
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
+                    Text(post.commentCount.toString(), fontSize = 13.sp, color = TextSecondary)
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Share
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Share",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp).clickable { }
-                )
+                Icon(Icons.Default.Send, "Share", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable { })
 
                 Spacer(modifier = Modifier.width(18.dp))
 
-                // Bookmark (stateful)
                 Icon(
                     imageVector = if (post.isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                     contentDescription = "Save",
                     tint = if (post.isSaved) AccentLavender else TextSecondary,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clickable { onSave() }
+                    modifier = Modifier.size(20.dp).clickable { onSave() }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun CommunityBottomBar(navController: NavController) {
-    val items = listOf(
-        Triple("Home", Icons.Default.Home, Routes.HOME),
-        Triple("Chat", Icons.Default.Chat, Routes.AI_CHAT),
-        Triple("Journal",  Icons.Default.Book,     Routes.JOURNAL),
-        Triple("Com", Icons.Default.Group, Routes.COMMUNITY),
-        Triple("Profile", Icons.Default.Person, Routes.PROFILE),
-    )
-    NavigationBar(containerColor = BottomNavBg, tonalElevation = 0.dp) {
-        items.forEachIndexed { index, (label, icon, route) ->
-            val isSelected = index == 3 // Community tab
-            NavigationBarItem(
-                icon = { Icon(icon, label, modifier = Modifier.size(22.dp)) },
-                label = { Text(label, fontSize = 11.sp) },
-                selected = isSelected,
-                onClick = {
-                    if (!isSelected) {
-                        navController.navigate(route) {
-                            popUpTo(Routes.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = AccentLavender,
-                    selectedTextColor = AccentLavender,
-                    unselectedIconColor = TextHint,
-                    unselectedTextColor = TextHint,
-                    indicatorColor = PrimaryPurple.copy(alpha = 0.18f)
-                )
-            )
         }
     }
 }

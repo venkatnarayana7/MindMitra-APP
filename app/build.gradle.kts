@@ -14,6 +14,8 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "COMMUNITY_API_URL", "\"https://mjvmqkska6.execute-api.ap-south-1.amazonaws.com/prod\"")
+        buildConfigField("String", "COMMUNITY_MEDIA_BUCKET", "\"https://mindmitra-community-media.s3.ap-south-1.amazonaws.com\"")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -40,6 +42,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -74,9 +77,12 @@ dependencies {
     // Lifecycle ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Networking — Groq API
+    // Networking — Groq API + Community API
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Image loading for community photos
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
