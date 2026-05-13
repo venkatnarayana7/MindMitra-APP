@@ -1,5 +1,8 @@
 package com.mindmitra.app.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -72,6 +76,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -87,6 +92,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.mindmitra.app.data.community.CommunityPost
+import com.mindmitra.app.data.community.CommunityStory
 import com.mindmitra.app.ui.theme.AccentLavender
 import com.mindmitra.app.ui.theme.CardSurface
 import com.mindmitra.app.ui.theme.DeepNavy
@@ -101,8 +107,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-
-private data class StoryUser(val avatar: String, val name: String, val hasStory: Boolean = true)
 
 private fun String.toRelativeTime(): String {
     return try {
@@ -145,26 +149,35 @@ fun CommunityScreen(
     val currentUserName = authViewModel.storedDisplayName()
     val currentAvatar = if (authViewModel.isMale) "🧠" else "💗"
 
+    // ── Post dialog state ─────────────────────────────────────────────────────
     var showPostDialog by remember { mutableStateOf(false) }
     var newPostText by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
     val selectedPostTags = remember { mutableStateListOf<String>() }
-    var hasSelectedImage by remember { mutableStateOf(false) }
+    var selectedPostImageUri by remember { mutableStateOf<Uri?>(null) }
 
+    val postImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) selectedPostImageUri = uri }
+
+    // ── Story state ───────────────────────────────────────────────────────────
+    var showStoryDialog by remember { mutableStateOf(false) }
+    var storyText by remember { mutableStateOf("") }
+    var selectedStoryImageUri by remember { mutableStateOf<Uri?>(null) }
+    var viewingStory by remember { mutableStateOf<CommunityStory?>(null) }
+
+    val storyImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) selectedStoryImageUri = uri }
+
+    // ── Comment sheet ─────────────────────────────────────────────────────────
     val commentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
     var commentText by remember { mutableStateOf("") }
 
-    val stories = remember {
-        listOf(
-            StoryUser("🧠", "Your\nStory", false),
-            StoryUser("🌟", "Arjun"),
-            StoryUser("💡", "Meera"),
-            StoryUser("🎯", "Rohan"),
-            StoryUser("🌊", "Priya"),
-            StoryUser("🔮", "Vikram"),
-            StoryUser("🌈", "Divya"),
-        )
+    fun dismissPostDialog() {
+        showPostDialog = false; newPostText = ""; tagInput = ""
+        selectedPostTags.clear(); selectedPostImageUri = null
     }
 
     Scaffold(
@@ -193,44 +206,89 @@ fun CommunityScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Stories row
+                // ── Stories row ────────────────────────────────────────────────
                 item {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(vertical = 4.dp)
                     ) {
-                        items(stories) { story ->
+                        // "Your Story" add button — always first
+                        item {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.width(58.dp)
+                                modifier = Modifier
+                                    .width(58.dp)
+                                    .clickable { showStoryDialog = true }
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(54.dp)
                                         .background(
-                                            if (story.hasStory) Brush.sweepGradient(
+                                            Brush.radialGradient(listOf(Color(0xFF2A2850), Color(0xFF1E1B4A))),
+                                            CircleShape
+                                        )
+                                        .border(2.dp, PrimaryPurple.copy(0.5f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(currentAvatar, fontSize = 22.sp)
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .size(18.dp)
+                                            .background(PrimaryPurple, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Your\nStory", fontSize = 10.sp, color = TextSecondary,
+                                    textAlign = TextAlign.Center, lineHeight = 13.sp, maxLines = 2
+                                )
+                            }
+                        }
+                        // Live stories from AWS
+                        items(communityViewModel.stories) { story ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .width(58.dp)
+                                    .clickable { viewingStory = story }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .background(
+                                            Brush.sweepGradient(
                                                 listOf(Color(0xFF6C5CE7), Color(0xFF9B8BFA), Color(0xFF6C5CE7))
-                                            ) else Brush.radialGradient(listOf(Color(0xFF2A2850), Color(0xFF1E1B4A))),
+                                            ),
                                             CircleShape
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(if (story.hasStory) 48.dp else 54.dp)
+                                            .size(48.dp)
                                             .background(Color(0xFF1E1B4A), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(story.avatar, fontSize = 22.sp)
+                                        if (!story.imageUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = story.imageUrl,
+                                                contentDescription = null,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                            )
+                                        } else {
+                                            Text(story.userAvatar, fontSize = 22.sp)
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    story.name,
-                                    fontSize = 10.sp, color = TextSecondary,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 13.sp,
-                                    maxLines = 2
+                                    story.userName.take(8), fontSize = 10.sp, color = TextSecondary,
+                                    textAlign = TextAlign.Center, lineHeight = 13.sp, maxLines = 1
                                 )
                             }
                         }
@@ -238,7 +296,7 @@ fun CommunityScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Live feed from AWS DynamoDB
+                // ── Live feed ──────────────────────────────────────────────────
                 items(posts, key = { it.postId }) { post ->
                     LivePostCard(
                         post = post,
@@ -251,19 +309,16 @@ fun CommunityScreen(
                     )
                 }
 
-                // Loading indicator
                 if (communityViewModel.isLoading) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
                             CircularProgressIndicator(
-                                color = AccentLavender, strokeWidth = 2.dp,
-                                modifier = Modifier.size(24.dp)
+                                color = AccentLavender, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
                             )
                         }
                     }
                 }
 
-                // Empty state
                 if (!communityViewModel.isLoading && posts.isEmpty() && communityViewModel.feedError == null) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
@@ -279,7 +334,6 @@ fun CommunityScreen(
                     }
                 }
 
-                // Error / retry
                 communityViewModel.feedError?.let { err ->
                     item {
                         Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
@@ -295,7 +349,6 @@ fun CommunityScreen(
                 }
             }
 
-            // Refresh indicator
             AnimatedVisibility(
                 visible = communityViewModel.isRefreshing,
                 enter = fadeIn(), exit = fadeOut(),
@@ -305,6 +358,163 @@ fun CommunityScreen(
                     CircularProgressIndicator(
                         color = AccentLavender, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
                     )
+                }
+            }
+        }
+    }
+
+    // ── Story Viewer ──────────────────────────────────────────────────────────
+    viewingStory?.let { story ->
+        Dialog(onDismissRequest = { viewingStory = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0D0820), RoundedCornerShape(20.dp))
+            ) {
+                Column {
+                    if (!story.imageUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = story.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp)
+                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                        )
+                    }
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(Color(0xFF252248), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) { Text(story.userAvatar, fontSize = 16.sp) }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(story.userName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                                Text(story.createdAt.toRelativeTime(), fontSize = 11.sp, color = TextHint)
+                            }
+                        }
+                        if (story.text.isNotBlank()) {
+                            Spacer(Modifier.height(10.dp))
+                            Text(story.text, fontSize = 14.sp, color = TextPrimary, lineHeight = 21.sp)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(
+                            onClick = { viewingStory = null },
+                            modifier = Modifier.align(Alignment.End)
+                        ) { Text("Close", color = AccentLavender) }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Story Creation Dialog ─────────────────────────────────────────────────
+    if (showStoryDialog) {
+        Dialog(onDismissRequest = { showStoryDialog = false; storyText = ""; selectedStoryImageUri = null }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = CardSurface),
+                border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.18f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Add to Story", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        IconButton(
+                            onClick = { showStoryDialog = false; storyText = ""; selectedStoryImageUri = null },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Close, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+
+                    // Image picker / preview
+                    if (selectedStoryImageUri == null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF12103A), RoundedCornerShape(12.dp))
+                                .border(1.dp, PrimaryPurple.copy(0.25f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    storyImagePicker.launch(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                }
+                                .padding(horizontal = 14.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.AddPhotoAlternate, null, tint = AccentLavender, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add Photo (optional)", fontSize = 13.sp, color = AccentLavender, fontWeight = FontWeight.Medium)
+                        }
+                    } else {
+                        Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+                            AsyncImage(
+                                model = selectedStoryImageUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd).padding(8.dp)
+                                    .background(Color(0x99000000), RoundedCornerShape(8.dp))
+                                    .clickable { selectedStoryImageUri = null }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) { Text("✕", fontSize = 13.sp, color = Color.White) }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = storyText,
+                        onValueChange = { storyText = it },
+                        placeholder = { Text("What's on your mind?", color = TextHint, fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
+                            focusedBorderColor = AccentLavender, unfocusedBorderColor = PrimaryPurple.copy(0.3f),
+                            cursorColor = AccentLavender,
+                            focusedContainerColor = Color(0xFF12103A), unfocusedContainerColor = Color(0xFF12103A)
+                        )
+                    )
+                    Spacer(Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            if (storyText.isNotBlank() || selectedStoryImageUri != null) {
+                                communityViewModel.createStory(
+                                    userId = currentUserId,
+                                    userName = currentUserName,
+                                    userAvatar = currentAvatar,
+                                    imageUri = selectedStoryImageUri,
+                                    text = storyText.trim(),
+                                    onDone = { showStoryDialog = false; storyText = ""; selectedStoryImageUri = null }
+                                )
+                            }
+                        },
+                        enabled = !communityViewModel.isUploading && (storyText.isNotBlank() || selectedStoryImageUri != null),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+                    ) {
+                        if (communityViewModel.isUploading) {
+                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        } else {
+                            Text("Share Story ✨", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }
@@ -332,38 +542,29 @@ fun CommunityScreen(
                     .padding(horizontal = 16.dp)
             ) {
                 Text(
-                    "Comments",
-                    fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary,
+                    "Comments", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
                 if (communityViewModel.commentsLoading) {
                     Box(Modifier.fillMaxWidth().height(80.dp), Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = AccentLavender, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
-                        )
+                        CircularProgressIndicator(color = AccentLavender, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                     }
                 } else if (communityViewModel.comments.isEmpty()) {
                     Text(
                         "No comments yet. Be the first! 💬",
-                        fontSize = 13.sp, color = TextSecondary,
-                        modifier = Modifier.padding(vertical = 16.dp)
+                        fontSize = 13.sp, color = TextSecondary, modifier = Modifier.padding(vertical = 16.dp)
                     )
                 } else {
                     LazyColumn(modifier = Modifier.height(300.dp)) {
                         items(communityViewModel.comments, key = { it.commentId }) { c ->
                             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .background(Color(0xFF252248), CircleShape),
+                                    modifier = Modifier.size(32.dp).background(Color(0xFF252248), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) { Text(c.userAvatar, fontSize = 14.sp) }
                                 Spacer(Modifier.width(8.dp))
                                 Column {
-                                    Text(
-                                        c.userName,
-                                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary
-                                    )
+                                    Text(c.userName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                                     Text(c.text, fontSize = 13.sp, color = TextSecondary, lineHeight = 18.sp)
                                     Text(c.createdAt.toRelativeTime(), fontSize = 11.sp, color = TextHint)
                                 }
@@ -384,13 +585,10 @@ fun CommunityScreen(
                         shape = RoundedCornerShape(20.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedBorderColor = AccentLavender,
-                            unfocusedBorderColor = PrimaryPurple.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
+                            focusedBorderColor = AccentLavender, unfocusedBorderColor = PrimaryPurple.copy(alpha = 0.3f),
                             cursorColor = AccentLavender,
-                            focusedContainerColor = Color(0xFF12103A),
-                            unfocusedContainerColor = Color(0xFF12103A)
+                            focusedContainerColor = Color(0xFF12103A), unfocusedContainerColor = Color(0xFF12103A)
                         )
                     )
                     Spacer(Modifier.width(8.dp))
@@ -398,9 +596,7 @@ fun CommunityScreen(
                     IconButton(
                         onClick = {
                             if (commentText.isNotBlank()) {
-                                communityViewModel.addComment(
-                                    postId, currentUserId, currentUserName, currentAvatar, commentText
-                                )
+                                communityViewModel.addComment(postId, currentUserId, currentUserName, currentAvatar, commentText)
                                 commentText = ""
                             }
                         }
@@ -419,11 +615,7 @@ fun CommunityScreen(
     // ── New Post Dialog ───────────────────────────────────────────────────────
     if (showPostDialog) {
         val popularTags = listOf("motivation", "anxiety", "wellness", "healing", "mindfulness", "selfcare", "mentalhealth", "gratitude")
-        fun dismissDialog() {
-            showPostDialog = false; newPostText = ""; tagInput = ""
-            selectedPostTags.clear(); hasSelectedImage = false
-        }
-        Dialog(onDismissRequest = { dismissDialog() }) {
+        Dialog(onDismissRequest = { dismissPostDialog() }) {
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = CardSurface),
@@ -440,7 +632,7 @@ fun CommunityScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("New Post", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        IconButton(onClick = { dismissDialog() }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { dismissPostDialog() }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Close, "Close", tint = TextSecondary, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -454,24 +646,26 @@ fun CommunityScreen(
                         shape = RoundedCornerShape(12.dp),
                         maxLines = 6,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedBorderColor = AccentLavender,
-                            unfocusedBorderColor = PrimaryPurple.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
+                            focusedBorderColor = AccentLavender, unfocusedBorderColor = PrimaryPurple.copy(alpha = 0.3f),
                             cursorColor = AccentLavender,
-                            focusedContainerColor = Color(0xFF12103A),
-                            unfocusedContainerColor = Color(0xFF12103A)
+                            focusedContainerColor = Color(0xFF12103A), unfocusedContainerColor = Color(0xFF12103A)
                         )
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    if (!hasSelectedImage) {
+                    // Photo picker — real device photo
+                    if (selectedPostImageUri == null) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color(0xFF12103A), RoundedCornerShape(12.dp))
                                 .border(1.dp, PrimaryPurple.copy(0.25f), RoundedCornerShape(12.dp))
-                                .clickable { hasSelectedImage = true }
+                                .clickable {
+                                    postImagePicker.launch(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
@@ -481,47 +675,20 @@ fun CommunityScreen(
                             Text("Add Photo", fontSize = 13.sp, color = AccentLavender, fontWeight = FontWeight.Medium)
                         }
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(130.dp)
-                                .background(
-                                    Brush.verticalGradient(listOf(Color(0xFF1A1040), Color(0xFF0A0820))),
-                                    RoundedCornerShape(12.dp)
-                                )
-                        ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0820), Color(0xFF1A1040), Color(0xFF0D0820))))
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        listOf(Color(0x60A090FF), Color(0x20604ABB), Color.Transparent),
-                                        center = Offset(size.width * 0.5f, size.height * 0.4f),
-                                        radius = size.width * 0.3f
-                                    ),
-                                    radius = size.width * 0.3f, center = Offset(size.width * 0.5f, size.height * 0.4f)
-                                )
-                                val mp = Path().apply {
-                                    val w = size.width; val h = size.height
-                                    moveTo(0f, h); lineTo(0f, h * 0.7f); lineTo(w * 0.2f, h * 0.5f)
-                                    lineTo(w * 0.4f, h * 0.65f); lineTo(w * 0.55f, h * 0.45f)
-                                    lineTo(w * 0.75f, h * 0.6f); lineTo(w, h * 0.65f); lineTo(w, h); close()
-                                }
-                                drawPath(mp, Color(0xFF060412))
-                                listOf(
-                                    Offset(size.width * 0.15f, size.height * 0.15f),
-                                    Offset(size.width * 0.35f, size.height * 0.1f),
-                                    Offset(size.width * 0.65f, size.height * 0.12f),
-                                    Offset(size.width * 0.82f, size.height * 0.2f)
-                                ).forEach { drawCircle(Color(0x90FFFFFF), 1.8f, it) }
-                            }
+                        Box(modifier = Modifier.fillMaxWidth().height(160.dp)) {
+                            AsyncImage(
+                                model = selectedPostImageUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+                            )
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd).padding(8.dp)
                                     .background(Color(0x99000000), RoundedCornerShape(8.dp))
-                                    .clickable { hasSelectedImage = false }
+                                    .clickable { selectedPostImageUri = null }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) { Text("✕ Remove", fontSize = 11.sp, color = Color.White) }
-                            Text("🌄", fontSize = 32.sp, modifier = Modifier.align(Alignment.Center))
                         }
                     }
                     Spacer(modifier = Modifier.height(14.dp))
@@ -622,7 +789,7 @@ fun CommunityScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        TextButton(onClick = { dismissDialog() }, modifier = Modifier.weight(1f)) {
+                        TextButton(onClick = { dismissPostDialog() }, modifier = Modifier.weight(1f)) {
                             Text("Cancel", color = TextSecondary)
                         }
                         Button(
@@ -635,15 +802,21 @@ fun CommunityScreen(
                                         userAvatar = currentAvatar,
                                         content = text,
                                         tags = selectedPostTags.toList(),
-                                        onDone = { dismissDialog() }
+                                        imageUri = selectedPostImageUri,
+                                        onDone = { dismissPostDialog() }
                                     )
                                 }
                             },
+                            enabled = !communityViewModel.isUploading && newPostText.isNotBlank(),
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
                         ) {
-                            Text("Post 🚀", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            if (communityViewModel.isUploading) {
+                                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                            } else {
+                                Text("Post 🚀", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -652,7 +825,7 @@ fun CommunityScreen(
     }
 }
 
-// ── Post Card — same visual design, wired to live AWS data ───────────────────
+// ── Post Card ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun LivePostCard(
@@ -676,18 +849,11 @@ private fun LivePostCard(
         border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.12f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Author row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .background(
-                            Brush.radialGradient(listOf(Color(0xFF3A2F7A), Color(0xFF1E1B4A))),
-                            CircleShape
-                        ),
+                        .background(Brush.radialGradient(listOf(Color(0xFF3A2F7A), Color(0xFF1E1B4A))), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     val av = post.userAvatar
@@ -702,80 +868,25 @@ private fun LivePostCard(
                     Text(post.userName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                     Text(post.createdAt.toRelativeTime(), fontSize = 11.sp, color = TextHint)
                 }
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .background(Color(0xFF252248), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("×", color = TextHint, fontSize = 16.sp, lineHeight = 16.sp)
-                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-
             Text(post.content, fontSize = 14.sp, color = TextPrimary, lineHeight = 21.sp)
 
-            // Image — real URL via Coil, or canvas placeholder
-            if (post.hasImage) {
+            if (post.hasImage && !post.imageUrl.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(10.dp))
-                if (!post.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = post.imageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .background(
-                                runCatching {
-                                    Color(android.graphics.Color.parseColor(
-                                        post.dominantColor.takeIf { it.startsWith("#") } ?: "#1E1B3C"
-                                    ))
-                                }.getOrDefault(Color(0xFF1E1B3C)),
-                                RoundedCornerShape(12.dp)
-                            )
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(155.dp)
-                            .background(Color(0xFF0F0B2A), RoundedCornerShape(12.dp))
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0820), Color(0xFF1A1040), Color(0xFF0D0820))))
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    listOf(Color(0x60A090FF), Color(0x20604ABB), Color.Transparent),
-                                    center = Offset(size.width * 0.5f, size.height * 0.45f),
-                                    radius = size.width * 0.28f
-                                ),
-                                radius = size.width * 0.28f,
-                                center = Offset(size.width * 0.5f, size.height * 0.45f)
-                            )
-                            val mountainPath = Path().apply {
-                                val w = size.width; val h = size.height
-                                moveTo(0f, h); lineTo(0f, h * 0.72f); lineTo(w * 0.15f, h * 0.55f)
-                                lineTo(w * 0.30f, h * 0.68f); lineTo(w * 0.45f, h * 0.48f)
-                                lineTo(w * 0.62f, h * 0.65f); lineTo(w * 0.78f, h * 0.52f)
-                                lineTo(w, h * 0.68f); lineTo(w, h); close()
-                            }
-                            drawPath(mountainPath, Color(0xFF060412))
-                            listOf(
-                                Offset(size.width * 0.12f, size.height * 0.15f),
-                                Offset(size.width * 0.28f, size.height * 0.08f),
-                                Offset(size.width * 0.55f, size.height * 0.12f),
-                                Offset(size.width * 0.72f, size.height * 0.06f),
-                                Offset(size.width * 0.88f, size.height * 0.18f),
-                                Offset(size.width * 0.40f, size.height * 0.22f),
-                            ).forEach { drawCircle(Color(0x90FFFFFF), radius = 1.8f, center = it) }
-                        }
-                    }
-                }
+                AsyncImage(
+                    model = post.imageUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1E1B3C), RoundedCornerShape(12.dp))
+                )
             }
 
-            // Tags
             if (post.tags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -792,21 +903,13 @@ private fun LivePostCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Reaction row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Like with spring animation
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) {
-                        likeScale = 1.4f
-                        onLike()
-                    }
+                    ) { likeScale = 1.4f; onLike() }
                 ) {
                     Icon(
                         imageVector = if (post.isLikedByMe) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -832,9 +935,7 @@ private fun LivePostCard(
                 Spacer(modifier = Modifier.weight(1f))
 
                 Icon(Icons.Default.Send, "Share", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable { })
-
                 Spacer(modifier = Modifier.width(18.dp))
-
                 Icon(
                     imageVector = if (post.isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                     contentDescription = "Save",

@@ -19,7 +19,7 @@ object CommunityApi {
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
     // ── Feed ─────────────────────────────────────────────────────────────────
@@ -99,12 +99,49 @@ object CommunityApi {
         parseComment(resp.getJSONObject("comment"))
     }
 
+    // ── Stories ──────────────────────────────────────────────────────────────
+
+    suspend fun getStories(): Result<List<CommunityStory>> = io {
+        val body = get("$BASE/stories")
+        val arr = body.getJSONArray("stories")
+        (0 until arr.length()).map { parseStory(arr.getJSONObject(it)) }
+    }
+
+    suspend fun createStory(
+        userId: String,
+        userName: String,
+        userAvatar: String,
+        imageUrl: String?,
+        text: String
+    ): Result<CommunityStory> = io {
+        val payload = JSONObject().apply {
+            put("userId", userId)
+            put("userName", userName)
+            put("userAvatar", userAvatar)
+            if (imageUrl != null) put("imageUrl", imageUrl)
+            put("text", text)
+        }
+        val resp = post("$BASE/stories", payload)
+        parseStory(resp.getJSONObject("story"))
+    }
+
     // ── Presign upload URL ───────────────────────────────────────────────────
 
     suspend fun getPresignUrl(ext: String = "jpg"): Result<Pair<String, String>> = io {
         val body = get("$BASE/upload/presign?ext=$ext")
         Pair(body.getString("uploadUrl"), body.getString("publicUrl"))
     }
+
+    // Uploads raw bytes directly to S3 presigned URL (no JSON wrapper)
+    suspend fun uploadBytesToS3(uploadUrl: String, bytes: ByteArray, mimeType: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val body = bytes.toRequestBody(mimeType.toMediaType())
+                val req = Request.Builder().url(uploadUrl).put(body).build()
+                val resp = http.newCall(req).execute()
+                resp.isSuccessful
+            }.getOrDefault(false)
+        }
 
     // ── HTTP helpers ─────────────────────────────────────────────────────────
 
@@ -176,5 +213,15 @@ object CommunityApi {
         userAvatar = c.optString("userAvatar", "🧠"),
         text       = c.getString("text"),
         createdAt  = c.optString("createdAt", "")
+    )
+
+    private fun parseStory(j: JSONObject) = CommunityStory(
+        storyId   = j.getString("storyId"),
+        userId    = j.optString("userId", ""),
+        userName  = j.optString("userName", "Anonymous"),
+        userAvatar = j.optString("userAvatar", "🧠"),
+        imageUrl  = j.takeIf { !it.isNull("imageUrl") }?.optString("imageUrl"),
+        text      = j.optString("text", ""),
+        createdAt = j.optString("createdAt", "")
     )
 }

@@ -30,4 +30,18 @@ object CommunityRepository {
 
     suspend fun getPresignUrl(ext: String = "jpg") =
         CommunityApi.getPresignUrl(ext)
+
+    suspend fun uploadBytesToS3(uploadUrl: String, bytes: ByteArray, mimeType: String) =
+        CommunityApi.uploadBytesToS3(uploadUrl, bytes, mimeType)
+
+    suspend fun getStories() =
+        CommunityApi.getStories()
+
+    suspend fun createStory(
+        userId: String,
+        userName: String,
+        userAvatar: String,
+        imageUrl: String?,
+        text: String
+    ) = CommunityApi.createStory(userId, userName, userAvatar, imageUrl, text)
 }

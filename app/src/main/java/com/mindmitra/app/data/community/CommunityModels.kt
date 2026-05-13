@@ -28,6 +28,16 @@ data class CommunityComment(
     val createdAt: String
 )
 
+data class CommunityStory(
+    val storyId: String,
+    val userId: String,
+    val userName: String,
+    val userAvatar: String,
+    val imageUrl: String?,
+    val text: String,
+    val createdAt: String
+)
+
 data class FeedPage(
     val posts: List<CommunityPost>,
     val cursor: String?,

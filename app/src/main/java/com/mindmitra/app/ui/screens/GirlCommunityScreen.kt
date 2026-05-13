@@ -1,5 +1,8 @@
 package com.mindmitra.app.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -7,7 +10,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -72,11 +75,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -87,6 +89,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.mindmitra.app.data.community.CommunityPost
+import com.mindmitra.app.data.community.CommunityStory
 import com.mindmitra.app.ui.theme.GirlBg
 import com.mindmitra.app.ui.theme.GirlBorder
 import com.mindmitra.app.ui.theme.GirlCard
@@ -94,7 +97,6 @@ import com.mindmitra.app.ui.theme.GirlPrimary
 import com.mindmitra.app.ui.theme.GirlPrimaryDim
 import com.mindmitra.app.ui.theme.GirlSurface
 import com.mindmitra.app.ui.theme.GirlTextDark
-import com.mindmitra.app.ui.theme.GirlTextLight
 import com.mindmitra.app.ui.theme.GirlTextMid
 import com.mindmitra.app.ui.viewmodel.AuthViewModel
 import com.mindmitra.app.ui.viewmodel.CommunityViewModel
@@ -103,8 +105,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-
-private data class GirlStoryUser(val avatar: String, val name: String, val hasStory: Boolean = true)
 
 private fun String.toGirlRelativeTime(): String {
     return try {
@@ -147,26 +147,35 @@ fun GirlCommunityScreen(
     val currentUserName = authViewModel.storedDisplayName()
     val currentAvatar = "💗"
 
+    // ── Post dialog state ─────────────────────────────────────────────────────
     var showPostDialog by remember { mutableStateOf(false) }
     var newPostText by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
     val selectedPostTags = remember { mutableStateListOf<String>() }
-    var hasSelectedImage by remember { mutableStateOf(false) }
+    var selectedPostImageUri by remember { mutableStateOf<Uri?>(null) }
 
+    val postImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) selectedPostImageUri = uri }
+
+    // ── Story state ───────────────────────────────────────────────────────────
+    var showStoryDialog by remember { mutableStateOf(false) }
+    var storyText by remember { mutableStateOf("") }
+    var selectedStoryImageUri by remember { mutableStateOf<Uri?>(null) }
+    var viewingStory by remember { mutableStateOf<CommunityStory?>(null) }
+
+    val storyImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) selectedStoryImageUri = uri }
+
+    // ── Comment sheet ─────────────────────────────────────────────────────────
     val commentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
     var commentText by remember { mutableStateOf("") }
 
-    val stories = remember {
-        listOf(
-            GirlStoryUser("💗", "Your\nStory", false),
-            GirlStoryUser("🌸", "Ananya"),
-            GirlStoryUser("🌺", "Priya"),
-            GirlStoryUser("🌷", "Riya"),
-            GirlStoryUser("🌻", "Shreya"),
-            GirlStoryUser("🌼", "Kavya"),
-            GirlStoryUser("🦋", "Nisha"),
-        )
+    fun dismissPostDialog() {
+        showPostDialog = false; newPostText = ""; tagInput = ""
+        selectedPostTags.clear(); selectedPostImageUri = null
     }
 
     Scaffold(
@@ -195,45 +204,85 @@ fun GirlCommunityScreen(
                 contentPadding = PaddingValues(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Stories row
+                // ── Stories row ────────────────────────────────────────────────
                 item {
                     LazyRow(
                         modifier = Modifier.padding(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(vertical = 4.dp)
                     ) {
-                        items(stories) { story ->
+                        // "Your Story" add button
+                        item {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.width(58.dp)
+                                modifier = Modifier
+                                    .width(58.dp)
+                                    .clickable { showStoryDialog = true }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .background(GirlPrimaryDim, CircleShape)
+                                        .border(2.dp, GirlPrimary.copy(0.5f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("💗", fontSize = 22.sp)
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .size(18.dp)
+                                            .background(GirlPrimary, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Your\nStory", fontSize = 10.sp, color = GirlTextMid,
+                                    textAlign = TextAlign.Center, lineHeight = 13.sp, maxLines = 2
+                                )
+                            }
+                        }
+                        // Live stories from AWS
+                        items(communityViewModel.stories) { story ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .width(58.dp)
+                                    .clickable { viewingStory = story }
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(54.dp)
                                         .background(
-                                            if (story.hasStory) Brush.sweepGradient(
-                                                listOf(GirlPrimary, Color(0xFFFFB3D1), GirlPrimary)
-                                            ) else Brush.radialGradient(listOf(GirlPrimaryDim, GirlPrimaryDim)),
+                                            Brush.sweepGradient(listOf(GirlPrimary, Color(0xFFFFB3D1), GirlPrimary)),
                                             CircleShape
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(if (story.hasStory) 48.dp else 54.dp)
+                                            .size(48.dp)
                                             .background(GirlPrimaryDim, CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(story.avatar, fontSize = 22.sp)
+                                        if (!story.imageUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = story.imageUrl,
+                                                contentDescription = null,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                            )
+                                        } else {
+                                            Text(story.userAvatar, fontSize = 22.sp)
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    story.name,
-                                    fontSize = 10.sp, color = GirlTextMid,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 13.sp,
-                                    maxLines = 2
+                                    story.userName.take(8), fontSize = 10.sp, color = GirlTextMid,
+                                    textAlign = TextAlign.Center, lineHeight = 13.sp, maxLines = 1
                                 )
                             }
                         }
@@ -241,7 +290,7 @@ fun GirlCommunityScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Pinned banner
+                // Safe space banner
                 item {
                     Box(
                         modifier = Modifier
@@ -263,7 +312,7 @@ fun GirlCommunityScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
-                // Live feed from AWS DynamoDB
+                // ── Live feed ──────────────────────────────────────────────────
                 items(posts, key = { it.postId }) { post ->
                     GirlLivePostCard(
                         post = post,
@@ -276,19 +325,14 @@ fun GirlCommunityScreen(
                     )
                 }
 
-                // Loading indicator
                 if (communityViewModel.isLoading) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
-                            CircularProgressIndicator(
-                                color = GirlPrimary, strokeWidth = 2.dp,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            CircularProgressIndicator(color = GirlPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                         }
                     }
                 }
 
-                // Empty state
                 if (!communityViewModel.isLoading && posts.isEmpty() && communityViewModel.feedError == null) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
@@ -304,8 +348,7 @@ fun GirlCommunityScreen(
                     }
                 }
 
-                // Error / retry
-                communityViewModel.feedError?.let { err ->
+                communityViewModel.feedError?.let {
                     item {
                         Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -320,16 +363,165 @@ fun GirlCommunityScreen(
                 }
             }
 
-            // Refresh indicator
             AnimatedVisibility(
                 visible = communityViewModel.isRefreshing,
                 enter = fadeIn(), exit = fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding()
             ) {
                 Box(Modifier.padding(top = 60.dp), Alignment.Center) {
-                    CircularProgressIndicator(
-                        color = GirlPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
+                    CircularProgressIndicator(color = GirlPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                }
+            }
+        }
+    }
+
+    // ── Story Viewer ──────────────────────────────────────────────────────────
+    viewingStory?.let { story ->
+        Dialog(onDismissRequest = { viewingStory = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(GirlCard, RoundedCornerShape(20.dp))
+            ) {
+                Column {
+                    if (!story.imageUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = story.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp)
+                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                        )
+                    }
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier.size(34.dp).background(GirlPrimaryDim, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) { Text(story.userAvatar, fontSize = 16.sp) }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(story.userName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = GirlTextDark)
+                                Text(story.createdAt.toGirlRelativeTime(), fontSize = 11.sp, color = GirlTextMid)
+                            }
+                        }
+                        if (story.text.isNotBlank()) {
+                            Spacer(Modifier.height(10.dp))
+                            Text(story.text, fontSize = 14.sp, color = GirlTextDark, lineHeight = 21.sp)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(
+                            onClick = { viewingStory = null },
+                            modifier = Modifier.align(Alignment.End)
+                        ) { Text("Close", color = GirlPrimary) }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Story Creation Dialog ─────────────────────────────────────────────────
+    if (showStoryDialog) {
+        Dialog(onDismissRequest = { showStoryDialog = false; storyText = ""; selectedStoryImageUri = null }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = GirlCard),
+                border = BorderStroke(1.dp, GirlBorder)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Add to Story 🌸", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GirlTextDark)
+                        IconButton(
+                            onClick = { showStoryDialog = false; storyText = ""; selectedStoryImageUri = null },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Close, null, tint = GirlTextMid, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+
+                    if (selectedStoryImageUri == null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(GirlPrimaryDim, RoundedCornerShape(12.dp))
+                                .border(1.dp, GirlBorder, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    storyImagePicker.launch(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.AddPhotoAlternate, null, tint = GirlPrimary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add Photo (optional)", fontSize = 13.sp, color = GirlPrimary, fontWeight = FontWeight.Medium)
+                        }
+                    } else {
+                        Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+                            AsyncImage(
+                                model = selectedStoryImageUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd).padding(8.dp)
+                                    .background(Color(0x99000000), RoundedCornerShape(8.dp))
+                                    .clickable { selectedStoryImageUri = null }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) { Text("✕", fontSize = 13.sp, color = Color.White) }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = storyText,
+                        onValueChange = { storyText = it },
+                        placeholder = { Text("What's on your mind?", color = GirlTextMid, fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = GirlTextDark, unfocusedTextColor = GirlTextDark,
+                            focusedBorderColor = GirlPrimary, unfocusedBorderColor = GirlBorder,
+                            cursorColor = GirlPrimary,
+                            focusedContainerColor = GirlSurface, unfocusedContainerColor = GirlSurface
+                        )
                     )
+                    Spacer(Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            if (storyText.isNotBlank() || selectedStoryImageUri != null) {
+                                communityViewModel.createStory(
+                                    userId = currentUserId,
+                                    userName = currentUserName,
+                                    userAvatar = currentAvatar,
+                                    imageUri = selectedStoryImageUri,
+                                    text = storyText.trim(),
+                                    onDone = { showStoryDialog = false; storyText = ""; selectedStoryImageUri = null }
+                                )
+                            }
+                        },
+                        enabled = !communityViewModel.isUploading && (storyText.isNotBlank() || selectedStoryImageUri != null),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = GirlPrimary)
+                    ) {
+                        if (communityViewModel.isUploading) {
+                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        } else {
+                            Text("Share Story 💗", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }
@@ -357,41 +549,31 @@ fun GirlCommunityScreen(
                     .padding(horizontal = 16.dp)
             ) {
                 Text(
-                    "Comments 💬",
-                    fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GirlTextDark,
+                    "Comments 💬", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GirlTextDark,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
                 if (communityViewModel.commentsLoading) {
                     Box(Modifier.fillMaxWidth().height(80.dp), Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = GirlPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp)
-                        )
+                        CircularProgressIndicator(color = GirlPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                     }
                 } else if (communityViewModel.comments.isEmpty()) {
                     Text(
                         "No comments yet. Be the first! 💗",
-                        fontSize = 13.sp, color = GirlTextMid,
-                        modifier = Modifier.padding(vertical = 16.dp)
+                        fontSize = 13.sp, color = GirlTextMid, modifier = Modifier.padding(vertical = 16.dp)
                     )
                 } else {
                     LazyColumn(modifier = Modifier.height(300.dp)) {
                         items(communityViewModel.comments, key = { it.commentId }) { c ->
                             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .background(GirlPrimaryDim, CircleShape)
-                                        .border(1.dp, GirlBorder, CircleShape),
+                                    modifier = Modifier.size(32.dp).background(GirlPrimaryDim, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) { Text(c.userAvatar, fontSize = 14.sp) }
                                 Spacer(Modifier.width(8.dp))
                                 Column {
-                                    Text(
-                                        c.userName,
-                                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = GirlTextDark
-                                    )
+                                    Text(c.userName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = GirlTextDark)
                                     Text(c.text, fontSize = 13.sp, color = GirlTextMid, lineHeight = 18.sp)
-                                    Text(c.createdAt.toGirlRelativeTime(), fontSize = 11.sp, color = GirlTextLight)
+                                    Text(c.createdAt.toGirlRelativeTime(), fontSize = 11.sp, color = GirlBorder)
                                 }
                             }
                         }
@@ -405,18 +587,15 @@ fun GirlCommunityScreen(
                     OutlinedTextField(
                         value = commentText,
                         onValueChange = { commentText = it },
-                        placeholder = { Text("Add a comment…", color = GirlTextLight, fontSize = 13.sp) },
+                        placeholder = { Text("Add a comment…", color = GirlTextMid, fontSize = 13.sp) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(20.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = GirlTextDark,
-                            unfocusedTextColor = GirlTextDark,
-                            focusedBorderColor = GirlPrimary,
-                            unfocusedBorderColor = GirlBorder,
+                            focusedTextColor = GirlTextDark, unfocusedTextColor = GirlTextDark,
+                            focusedBorderColor = GirlPrimary, unfocusedBorderColor = GirlBorder,
                             cursorColor = GirlPrimary,
-                            focusedContainerColor = GirlSurface,
-                            unfocusedContainerColor = GirlSurface
+                            focusedContainerColor = GirlSurface, unfocusedContainerColor = GirlSurface
                         )
                     )
                     Spacer(Modifier.width(8.dp))
@@ -424,16 +603,14 @@ fun GirlCommunityScreen(
                     IconButton(
                         onClick = {
                             if (commentText.isNotBlank()) {
-                                communityViewModel.addComment(
-                                    postId, currentUserId, currentUserName, currentAvatar, commentText
-                                )
+                                communityViewModel.addComment(postId, currentUserId, currentUserName, currentAvatar, commentText)
                                 commentText = ""
                             }
                         }
                     ) {
                         Icon(
                             Icons.Default.Send, null,
-                            tint = if (commentText.isNotBlank()) GirlPrimary else GirlTextLight,
+                            tint = if (commentText.isNotBlank()) GirlPrimary else GirlTextMid,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -444,12 +621,8 @@ fun GirlCommunityScreen(
 
     // ── New Post Dialog ───────────────────────────────────────────────────────
     if (showPostDialog) {
-        val popularTags = listOf("motivation", "wellness", "healing", "selfcare", "anxiety", "gratitude", "mentalhealth", "support")
-        fun dismissDialog() {
-            showPostDialog = false; newPostText = ""; tagInput = ""
-            selectedPostTags.clear(); hasSelectedImage = false
-        }
-        Dialog(onDismissRequest = { dismissDialog() }) {
+        val popularTags = listOf("selfcare", "anxiety", "wellness", "healing", "mindfulness", "gratitude", "mentalhealth", "girlpower")
+        Dialog(onDismissRequest = { dismissPostDialog() }) {
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = GirlCard),
@@ -465,8 +638,8 @@ fun GirlCommunityScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("New Post 💕", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GirlTextDark)
-                        IconButton(onClick = { dismissDialog() }, modifier = Modifier.size(32.dp)) {
+                        Text("New Post 🌸", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GirlTextDark)
+                        IconButton(onClick = { dismissPostDialog() }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Close, "Close", tint = GirlTextMid, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -475,26 +648,29 @@ fun GirlCommunityScreen(
                     OutlinedTextField(
                         value = newPostText,
                         onValueChange = { newPostText = it },
-                        placeholder = { Text("What's on your mind?", color = GirlTextLight, fontSize = 14.sp) },
+                        placeholder = { Text("What's on your mind?", color = GirlTextMid, fontSize = 14.sp) },
                         modifier = Modifier.fillMaxWidth().height(120.dp),
                         shape = RoundedCornerShape(12.dp),
                         maxLines = 6,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = GirlTextDark, unfocusedTextColor = GirlTextDark,
                             focusedBorderColor = GirlPrimary, unfocusedBorderColor = GirlBorder,
-                            cursorColor = GirlPrimary, focusedContainerColor = GirlSurface,
-                            unfocusedContainerColor = GirlSurface
+                            cursorColor = GirlPrimary,
+                            focusedContainerColor = GirlSurface, unfocusedContainerColor = GirlSurface
                         )
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    if (!hasSelectedImage) {
+                    // Photo picker
+                    if (selectedPostImageUri == null) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(GirlSurface, RoundedCornerShape(12.dp))
+                                .background(GirlPrimaryDim, RoundedCornerShape(12.dp))
                                 .border(1.dp, GirlBorder, RoundedCornerShape(12.dp))
-                                .clickable { hasSelectedImage = true }
+                                .clickable {
+                                    postImagePicker.launch(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
@@ -504,44 +680,20 @@ fun GirlCommunityScreen(
                             Text("Add Photo", fontSize = 13.sp, color = GirlPrimary, fontWeight = FontWeight.Medium)
                         }
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(130.dp)
-                                .background(
-                                    Brush.verticalGradient(listOf(Color(0xFFFFE4EF), Color(0xFFFFF0F5))),
-                                    RoundedCornerShape(12.dp)
-                                )
-                        ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                drawRect(Brush.verticalGradient(listOf(Color(0xFFFCE4EC), Color(0xFFFFF0F5))))
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        listOf(Color(0x60EF5DA8), Color(0x20EF5DA8), Color.Transparent),
-                                        center = Offset(size.width * 0.5f, size.height * 0.35f),
-                                        radius = size.width * 0.35f
-                                    ),
-                                    radius = size.width * 0.35f,
-                                    center = Offset(size.width * 0.5f, size.height * 0.35f)
-                                )
-                                val hillPath = Path().apply {
-                                    val w = size.width; val h = size.height
-                                    moveTo(0f, h); lineTo(0f, h * 0.75f)
-                                    lineTo(w * 0.25f, h * 0.55f); lineTo(w * 0.5f, h * 0.7f)
-                                    lineTo(w * 0.72f, h * 0.5f); lineTo(w, h * 0.68f); lineTo(w, h); close()
-                                }
-                                drawPath(hillPath, Color(0x30EF5DA8))
-                            }
+                        Box(modifier = Modifier.fillMaxWidth().height(160.dp)) {
+                            AsyncImage(
+                                model = selectedPostImageUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+                            )
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd).padding(8.dp)
-                                    .background(Color(0x66EF5DA8), RoundedCornerShape(8.dp))
-                                    .clickable { hasSelectedImage = false }
+                                    .background(Color(0x99000000), RoundedCornerShape(8.dp))
+                                    .clickable { selectedPostImageUri = null }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text("✕ Remove", fontSize = 11.sp, color = Color.White)
-                            }
-                            Text("🌸", fontSize = 32.sp, modifier = Modifier.align(Alignment.Center))
+                            ) { Text("✕ Remove", fontSize = 11.sp, color = Color.White) }
                         }
                     }
                     Spacer(modifier = Modifier.height(14.dp))
@@ -563,7 +715,7 @@ fun GirlCommunityScreen(
                                     tagInput = ""
                                 } else tagInput = clean
                             },
-                            placeholder = { Text("wellness, healing…", fontSize = 12.sp, color = GirlTextLight) },
+                            placeholder = { Text("wellness, healing…", fontSize = 12.sp, color = GirlTextMid) },
                             prefix = { Text("#", color = GirlPrimary, fontWeight = FontWeight.SemiBold) },
                             modifier = Modifier.weight(1f).height(52.dp),
                             shape = RoundedCornerShape(10.dp),
@@ -601,7 +753,7 @@ fun GirlCommunityScreen(
                                     Text("#$tag", fontSize = 12.sp, color = GirlPrimary)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
-                                        Icons.Default.Close, null, tint = GirlPrimary.copy(0.6f),
+                                        Icons.Default.Close, null, tint = GirlPrimary.copy(0.7f),
                                         modifier = Modifier.size(12.dp).clickable { selectedPostTags.remove(tag) }
                                     )
                                 }
@@ -610,7 +762,7 @@ fun GirlCommunityScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("Popular tags", fontSize = 11.sp, color = GirlTextLight)
+                    Text("Popular tags", fontSize = 11.sp, color = GirlTextMid)
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(popularTags) { tag ->
@@ -621,18 +773,11 @@ fun GirlCommunityScreen(
                                         if (isAdded) GirlPrimaryDim else GirlSurface,
                                         RoundedCornerShape(20.dp)
                                     )
-                                    .border(
-                                        1.dp,
-                                        if (isAdded) GirlBorder else GirlBorder.copy(alpha = 0.5f),
-                                        RoundedCornerShape(20.dp)
-                                    )
+                                    .border(1.dp, if (isAdded) GirlPrimary.copy(0.6f) else GirlBorder, RoundedCornerShape(20.dp))
                                     .clickable { if (!isAdded) selectedPostTags.add(tag) else selectedPostTags.remove(tag) }
                                     .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
-                                Text(
-                                    "#$tag", fontSize = 11.sp,
-                                    color = if (isAdded) GirlPrimary else GirlTextMid
-                                )
+                                Text("#$tag", fontSize = 11.sp, color = if (isAdded) GirlPrimary else GirlTextMid)
                             }
                         }
                     }
@@ -642,7 +787,7 @@ fun GirlCommunityScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        TextButton(onClick = { dismissDialog() }, modifier = Modifier.weight(1f)) {
+                        TextButton(onClick = { dismissPostDialog() }, modifier = Modifier.weight(1f)) {
                             Text("Cancel", color = GirlTextMid)
                         }
                         Button(
@@ -655,15 +800,21 @@ fun GirlCommunityScreen(
                                         userAvatar = currentAvatar,
                                         content = text,
                                         tags = selectedPostTags.toList(),
-                                        onDone = { dismissDialog() }
+                                        imageUri = selectedPostImageUri,
+                                        onDone = { dismissPostDialog() }
                                     )
                                 }
                             },
+                            enabled = !communityViewModel.isUploading && newPostText.isNotBlank(),
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = GirlPrimary)
                         ) {
-                            Text("Post 💗", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            if (communityViewModel.isUploading) {
+                                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                            } else {
+                                Text("Post 💗", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -672,7 +823,7 @@ fun GirlCommunityScreen(
     }
 }
 
-// ── Girl Post Card — pink theme, wired to live AWS data ──────────────────────
+// ── Post Card ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun GirlLivePostCard(
@@ -686,175 +837,105 @@ private fun GirlLivePostCard(
         targetValue = likeScale,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
         finishedListener = { likeScale = 1f },
-        label = "girlLikeScale"
+        label = "likeScale"
     )
 
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = GirlCard),
         border = BorderStroke(1.dp, GirlBorder)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Author row
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(GirlPrimaryDim, CircleShape)
-                        .border(2.dp, GirlBorder, CircleShape),
+                    modifier = Modifier.size(36.dp).background(GirlPrimaryDim, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     val av = post.userAvatar
                     if (av.isNotEmpty() && av.any { it.code > 127 }) {
-                        Text(av, fontSize = 20.sp)
+                        Text(av, fontSize = 18.sp)
                     } else {
-                        Icon(Icons.Default.Person, null, tint = GirlPrimary, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Person, null, tint = GirlPrimary, modifier = Modifier.size(18.dp))
                     }
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(post.userName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = GirlTextDark)
-                    Text(post.createdAt.toGirlRelativeTime(), fontSize = 11.sp, color = GirlTextLight)
-                }
-                if (post.tags.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .background(GirlPrimaryDim, RoundedCornerShape(20.dp))
-                            .border(1.dp, GirlBorder, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(post.tags.first(), fontSize = 11.sp, color = GirlPrimary, fontWeight = FontWeight.Medium)
-                    }
+                    Text(post.userName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = GirlTextDark)
+                    Text(post.createdAt.toGirlRelativeTime(), fontSize = 11.sp, color = GirlTextMid)
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
             Text(post.content, fontSize = 14.sp, color = GirlTextDark, lineHeight = 21.sp)
 
-            // Image — real S3 URL via Coil, or pink canvas placeholder
-            if (post.hasImage) {
+            if (post.hasImage && !post.imageUrl.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(10.dp))
-                if (!post.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = post.imageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .background(
-                                runCatching {
-                                    Color(android.graphics.Color.parseColor(
-                                        post.dominantColor.takeIf { it.startsWith("#") } ?: "#FCE4EC"
-                                    ))
-                                }.getOrDefault(Color(0xFFFCE4EC)),
-                                RoundedCornerShape(12.dp)
-                            )
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                            .background(
-                                Brush.verticalGradient(listOf(Color(0xFFFCE4EC), Color(0xFFFFF0F5))),
-                                RoundedCornerShape(12.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    listOf(Color(0x60EF5DA8), Color(0x20EF5DA8), Color.Transparent),
-                                    center = Offset(size.width * 0.5f, size.height * 0.4f),
-                                    radius = size.width * 0.3f
-                                ),
-                                radius = size.width * 0.3f,
-                                center = Offset(size.width * 0.5f, size.height * 0.4f)
-                            )
-                            val hillPath = Path().apply {
-                                val w = size.width; val h = size.height
-                                moveTo(0f, h); lineTo(0f, h * 0.75f)
-                                lineTo(w * 0.25f, h * 0.55f); lineTo(w * 0.5f, h * 0.7f)
-                                lineTo(w * 0.72f, h * 0.5f); lineTo(w, h * 0.68f); lineTo(w, h); close()
-                            }
-                            drawPath(hillPath, Color(0x30EF5DA8))
-                        }
-                        Text("🌸", fontSize = 36.sp)
-                    }
-                }
+                AsyncImage(
+                    model = post.imageUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GirlPrimaryDim, RoundedCornerShape(12.dp))
+                )
             }
 
-            // Extra hashtag chips (tags beyond the first shown in header)
-            if (post.tags.size > 1) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(post.tags.drop(1).take(3)) { tag ->
+            if (post.tags.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    post.tags.take(3).forEach { tag ->
                         Box(
                             modifier = Modifier
-                                .background(GirlPrimaryDim, RoundedCornerShape(20.dp))
-                                .border(1.dp, GirlBorder, RoundedCornerShape(20.dp))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text("#$tag", fontSize = 11.sp, color = GirlPrimary)
-                        }
+                                .background(GirlPrimaryDim, RoundedCornerShape(50.dp))
+                                .border(1.dp, GirlBorder, RoundedCornerShape(50.dp))
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) { Text(tag, color = GirlPrimary, fontSize = 11.sp) }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Reaction row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Like with spring animation
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) {
-                        likeScale = 1.4f
-                        onLike()
-                    }
+                    ) { likeScale = 1.4f; onLike() }
                 ) {
                     Icon(
                         imageVector = if (post.isLikedByMe) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Like",
-                        tint = if (post.isLikedByMe) GirlPrimary else GirlTextLight,
+                        tint = if (post.isLikedByMe) GirlPrimary else GirlTextMid,
                         modifier = Modifier.size(18.dp).scale(animScale)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(post.likeCount.toString(), fontSize = 13.sp, color = if (post.isLikedByMe) GirlPrimary else GirlTextMid)
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(post.likeCount.toString(), fontSize = 13.sp, color = GirlTextMid)
                 }
 
-                Spacer(modifier = Modifier.width(20.dp))
+                Spacer(modifier = Modifier.width(22.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.clickable { onComment() }
                 ) {
-                    Icon(Icons.Default.ChatBubbleOutline, "Comment", tint = GirlTextLight, modifier = Modifier.size(17.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.ChatBubbleOutline, "Comment", tint = GirlTextMid, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(post.commentCount.toString(), fontSize = 13.sp, color = GirlTextMid)
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                Icon(
-                    Icons.Default.Send, "Share", tint = GirlTextLight,
-                    modifier = Modifier.size(18.dp).clickable { }
-                )
-
+                Icon(Icons.Default.Send, "Share", tint = GirlTextMid, modifier = Modifier.size(18.dp).clickable { })
                 Spacer(modifier = Modifier.width(18.dp))
-
                 Icon(
                     imageVector = if (post.isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                     contentDescription = "Save",
-                    tint = if (post.isSaved) GirlPrimary else GirlTextLight,
+                    tint = if (post.isSaved) GirlPrimary else GirlTextMid,
                     modifier = Modifier.size(20.dp).clickable { onSave() }
                 )
             }
