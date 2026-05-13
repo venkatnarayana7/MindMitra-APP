@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -219,23 +220,37 @@ fun AuthScreen(
                 Button(
                     onClick = {
                         when {
-                            signName.isBlank()    -> signError = "Please enter your name"
-                            signEmail.isBlank()   -> signError = "Please enter your email"
+                            signName.isBlank()      -> signError = "Please enter your name"
+                            signEmail.isBlank()     -> signError = "Please enter your email"
                             signPassword.length < 6 -> signError = "Password must be 6+ characters"
-                            signGender.isBlank()  -> signError = "Please select your gender"
+                            signGender.isBlank()    -> signError = "Please select your gender"
                             else -> {
-                                authViewModel.signup(signName, signEmail, signPassword, signGender)
-                                userViewModel.updateUserName(signName)
-                                if (authViewModel.isMale) onNavigateMale() else onNavigateFemale()
+                                signError = ""
+                                authViewModel.signup(
+                                    signName, signEmail, signPassword, signGender,
+                                    onSuccess = { isMale ->
+                                        userViewModel.updateUserName(signName)
+                                        if (isMale) onNavigateMale() else onNavigateFemale()
+                                    },
+                                    onError = { msg -> signError = msg }
+                                )
                             }
                         }
                     },
+                    enabled = !authViewModel.isLoading,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
                 ) {
-                    Text("Create Account", fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                        color = Color.White)
+                    if (authViewModel.isLoading) {
+                        CircularProgressIndicator(
+                            color = Color.White, strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text("Create Account", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                            color = Color.White)
+                    }
                 }
             } else {
                 // ── Sign-in form ──────────────────────────────────────────────
@@ -260,18 +275,29 @@ fun AuthScreen(
                 Spacer(Modifier.height(20.dp))
                 Button(
                     onClick = {
-                        if (authViewModel.login(loginEmail.trim(), loginPassword)) {
-                            userViewModel.updateUserName(authViewModel.storedDisplayName())
-                            if (authViewModel.isMale) onNavigateMale() else onNavigateFemale()
-                        } else {
-                            loginError = "Invalid email or password"
-                        }
+                        loginError = ""
+                        authViewModel.login(
+                            loginEmail.trim(), loginPassword,
+                            onSuccess = { isMale ->
+                                userViewModel.updateUserName(authViewModel.storedDisplayName())
+                                if (isMale) onNavigateMale() else onNavigateFemale()
+                            },
+                            onError = { msg -> loginError = msg }
+                        )
                     },
+                    enabled = !authViewModel.isLoading,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
                 ) {
-                    Text("Sign In", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    if (authViewModel.isLoading) {
+                        CircularProgressIndicator(
+                            color = Color.White, strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text("Sign In", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
         }

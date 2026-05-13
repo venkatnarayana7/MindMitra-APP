@@ -141,7 +141,7 @@ fun CommunityScreen(
             communityViewModel.loadFeed()
     }
 
-    val currentUserId = authViewModel.storedEmail.ifBlank { "user_local" }
+    val currentUserId = authViewModel.storedUserId.ifBlank { authViewModel.storedEmail.ifBlank { "user_local" } }
     val currentUserName = authViewModel.storedDisplayName()
     val currentAvatar = if (authViewModel.isMale) "🧠" else "💗"
 
