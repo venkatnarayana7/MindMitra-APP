@@ -106,19 +106,21 @@ import java.util.TimeZone
 
 private data class GirlStoryUser(val avatar: String, val name: String, val hasStory: Boolean = true)
 
-private fun String.toGirlRelativeTime(): String = try {
-    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-    sdf.timeZone = TimeZone.getTimeZone("UTC")
-    val then = sdf.parse(this) ?: return "recently"
-    val mins = (Date().time - then.time) / 60_000
-    when {
-        mins < 1     -> "just now"
-        mins < 60    -> "${mins}m ago"
-        mins < 1440  -> "${mins / 60}h ago"
-        mins < 10080 -> "${mins / 1440}d ago"
-        else         -> "${mins / 10080}w ago"
-    }
-} catch (_: Exception) { "recently" }
+private fun String.toGirlRelativeTime(): String {
+    return try {
+        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        sdf.timeZone = TimeZone.getTimeZone("UTC")
+        val then = sdf.parse(this) ?: return "recently"
+        val mins = (Date().time - then.time) / 60_000
+        when {
+            mins < 1     -> "just now"
+            mins < 60    -> "${mins}m ago"
+            mins < 1440  -> "${mins / 60}h ago"
+            mins < 10080 -> "${mins / 1440}d ago"
+            else         -> "${mins / 10080}w ago"
+        }
+    } catch (_: Exception) { "recently" }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
