@@ -1,0 +1,16 @@
+# Android build artifacts
+app/build/
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
+# Local configuration
+local.properties
+
+# IDE
+.idea/
+*.iml
+.gradle/
