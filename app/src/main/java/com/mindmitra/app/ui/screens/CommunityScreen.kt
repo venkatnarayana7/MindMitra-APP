@@ -2,6 +2,7 @@ package com.mindmitra.app.ui.screens
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -445,7 +446,7 @@ fun CommunityScreen(
                                 .border(1.dp, PrimaryPurple.copy(0.25f), RoundedCornerShape(12.dp))
                                 .clickable {
                                     storyImagePicker.launch(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                     )
                                 }
                                 .padding(horizontal = 14.dp, vertical = 16.dp),
@@ -663,7 +664,7 @@ fun CommunityScreen(
                                 .border(1.dp, PrimaryPurple.copy(0.25f), RoundedCornerShape(12.dp))
                                 .clickable {
                                     postImagePicker.launch(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                     )
                                 }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
