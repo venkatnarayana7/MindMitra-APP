@@ -94,7 +94,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.mindmitra.app.data.community.CommunityPost
 import com.mindmitra.app.data.community.CommunityStory
 import com.mindmitra.app.ui.theme.AccentLavender
@@ -400,6 +403,8 @@ fun CommunityScreen(
     // ── Full-screen Story Viewer (Instagram/WhatsApp style) ───────────────────
     if (viewingStory != null) {
         val story = viewingStory!!
+        val storyImageUrl = story.imageUrl  // snapshot URL before entering Dialog scope
+        val ctx = LocalContext.current
         Dialog(
             onDismissRequest = { viewingStory = null },
             properties = DialogProperties(
@@ -417,13 +422,26 @@ fun CommunityScreen(
                         indication = null
                     ) { viewingStory = null }
             ) {
-                // Full-screen image
-                if (!story.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = story.imageUrl,
+                // Full-screen image — use SubcomposeAsyncImage with explicit context so
+                // Coil correctly reloads from cache on every re-open of the dialog window
+                if (!storyImageUrl.isNullOrBlank()) {
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(ctx)
+                            .data(storyImageUrl)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        loading = {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    color = Color.White.copy(0.7f),
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
                     )
                 } else {
                     // Text-only story: gradient background
