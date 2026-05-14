@@ -107,6 +107,12 @@ object CommunityApi {
         (0 until arr.length()).map { parseStory(arr.getJSONObject(it)) }
     }
 
+    suspend fun recordStoryView(storyId: String, userId: String): Result<Int> = io {
+        val payload = JSONObject().apply { put("userId", userId) }
+        val resp = post("$BASE/stories/$storyId/view", payload)
+        resp.optInt("viewCount", 0)
+    }
+
     suspend fun createStory(
         userId: String,
         userName: String,
@@ -216,12 +222,13 @@ object CommunityApi {
     )
 
     private fun parseStory(j: JSONObject) = CommunityStory(
-        storyId   = j.getString("storyId"),
-        userId    = j.optString("userId", ""),
-        userName  = j.optString("userName", "Anonymous"),
+        storyId    = j.getString("storyId"),
+        userId     = j.optString("userId", ""),
+        userName   = j.optString("userName", "Anonymous"),
         userAvatar = j.optString("userAvatar", "🧠"),
-        imageUrl  = j.takeIf { !it.isNull("imageUrl") }?.optString("imageUrl"),
-        text      = j.optString("text", ""),
-        createdAt = j.optString("createdAt", "")
+        imageUrl   = j.takeIf { !it.isNull("imageUrl") }?.optString("imageUrl"),
+        text       = j.optString("text", ""),
+        createdAt  = j.optString("createdAt", ""),
+        viewCount  = j.optInt("viewCount", 0)
     )
 }

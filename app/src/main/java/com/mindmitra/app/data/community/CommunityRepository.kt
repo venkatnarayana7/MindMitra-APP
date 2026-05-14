@@ -34,6 +34,9 @@ object CommunityRepository {
     suspend fun uploadBytesToS3(uploadUrl: String, bytes: ByteArray, mimeType: String) =
         CommunityApi.uploadBytesToS3(uploadUrl, bytes, mimeType)
 
+    suspend fun recordStoryView(storyId: String, userId: String) =
+        CommunityApi.recordStoryView(storyId, userId)
+
     suspend fun getStories() =
         CommunityApi.getStories()
 

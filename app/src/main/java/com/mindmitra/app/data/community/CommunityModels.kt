@@ -35,7 +35,8 @@ data class CommunityStory(
     val userAvatar: String,
     val imageUrl: String?,
     val text: String,
-    val createdAt: String
+    val createdAt: String,
+    val viewCount: Int = 0
 )
 
 data class FeedPage(

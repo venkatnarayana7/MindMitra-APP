@@ -82,6 +82,16 @@ class CommunityViewModel(application: Application) : AndroidViewModel(applicatio
 
     // ── Stories ───────────────────────────────────────────────────────────────
 
+    fun recordStoryView(storyId: String, userId: String) {
+        viewModelScope.launch {
+            CommunityRepository.recordStoryView(storyId, userId)
+                .onSuccess { count ->
+                    val i = stories.indexOfFirst { it.storyId == storyId }
+                    if (i != -1) stories[i] = stories[i].copy(viewCount = count)
+                }
+        }
+    }
+
     fun loadStories() {
         viewModelScope.launch {
             storiesLoading = true

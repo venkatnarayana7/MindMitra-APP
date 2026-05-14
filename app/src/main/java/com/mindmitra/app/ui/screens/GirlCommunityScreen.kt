@@ -5,9 +5,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -48,6 +52,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -86,6 +91,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -169,6 +175,19 @@ fun GirlCommunityScreen(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> if (uri != null) selectedStoryImageUri = uri }
 
+    // Progress Animatable — lives at composable scope, not inside Dialog
+    val storyProgress = remember { Animatable(0f) }
+    LaunchedEffect(viewingStory?.storyId) {
+        val story = viewingStory
+        if (story != null) {
+            storyProgress.snapTo(0f)
+            communityViewModel.recordStoryView(story.storyId, currentUserId)
+            val duration = if (!story.imageUrl.isNullOrBlank()) 7000 else 5000
+            storyProgress.animateTo(1f, animationSpec = tween(duration, easing = LinearEasing))
+            viewingStory = null
+        }
+    }
+
     // ── Comment sheet ─────────────────────────────────────────────────────────
     val commentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
@@ -217,7 +236,7 @@ fun GirlCommunityScreen(
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .width(58.dp)
+                                    .width(64.dp)
                                     .clickable { showStoryDialog = true }
                             ) {
                                 Box(
@@ -245,12 +264,12 @@ fun GirlCommunityScreen(
                                 )
                             }
                         }
-                        // Live stories from AWS
+                        // Live stories — show view count below name
                         items(communityViewModel.stories) { story ->
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .width(58.dp)
+                                    .width(64.dp)
                                     .clickable { viewingStory = story }
                             ) {
                                 Box(
@@ -285,6 +304,23 @@ fun GirlCommunityScreen(
                                     story.userName.take(8), fontSize = 10.sp, color = GirlTextMid,
                                     textAlign = TextAlign.Center, lineHeight = 13.sp, maxLines = 1
                                 )
+                                if (story.viewCount > 0) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.RemoveRedEye, null,
+                                            tint = GirlPrimary.copy(0.7f),
+                                            modifier = Modifier.size(9.dp)
+                                        )
+                                        Spacer(Modifier.width(2.dp))
+                                        Text(
+                                            "${story.viewCount}", fontSize = 9.sp,
+                                            color = GirlPrimary.copy(0.7f)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -349,7 +385,7 @@ fun GirlCommunityScreen(
                     }
                 }
 
-                communityViewModel.feedError?.let {
+                communityViewModel.feedError?.let { _ ->
                     item {
                         Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -376,47 +412,160 @@ fun GirlCommunityScreen(
         }
     }
 
-    // ── Story Viewer ──────────────────────────────────────────────────────────
-    viewingStory?.let { story ->
-        Dialog(onDismissRequest = { viewingStory = null }) {
+    // ── Full-screen Story Viewer (Instagram/WhatsApp style — pink theme) ───────
+    if (viewingStory != null) {
+        val story = viewingStory!!
+        Dialog(
+            onDismissRequest = { viewingStory = null },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false
+            )
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(GirlCard, RoundedCornerShape(20.dp))
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { viewingStory = null }
             ) {
-                Column {
-                    if (!story.imageUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = story.imageUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                // Full-screen image
+                if (!story.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = story.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // Text-only: pink gradient background
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFFFFB3D1), Color(0xFFEF5DA8), Color(0xFFFFB3D1))
+                                )
+                            )
+                    )
+                }
+
+                // Top gradient overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .align(Alignment.TopCenter)
+                        .background(
+                            Brush.verticalGradient(listOf(Color.Black.copy(0.70f), Color.Transparent))
+                        )
+                )
+
+                // Bottom gradient overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.80f)))
+                        )
+                )
+
+                // ── Top bar: progress + author + close ────────────────────────
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    // Thin progress bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(0.35f))
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(320.dp)
-                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                                .fillMaxHeight()
+                                .fillMaxWidth(storyProgress.value)
+                                .background(Color.White, RoundedCornerShape(2.dp))
                         )
                     }
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier.size(34.dp).background(GirlPrimaryDim, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) { Text(story.userAvatar, fontSize = 16.sp) }
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(story.userName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = GirlTextDark)
-                                Text(story.createdAt.toGirlRelativeTime(), fontSize = 11.sp, color = GirlTextMid)
-                            }
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(Color.White.copy(0.2f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(story.userAvatar, fontSize = 18.sp)
                         }
-                        if (story.text.isNotBlank()) {
-                            Spacer(Modifier.height(10.dp))
-                            Text(story.text, fontSize = 14.sp, color = GirlTextDark, lineHeight = 21.sp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                story.userName,
+                                fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White
+                            )
+                            Text(
+                                story.createdAt.toGirlRelativeTime(),
+                                fontSize = 11.sp, color = Color.White.copy(0.7f)
+                            )
                         }
-                        Spacer(Modifier.height(12.dp))
-                        TextButton(
+                        IconButton(
                             onClick = { viewingStory = null },
-                            modifier = Modifier.align(Alignment.End)
-                        ) { Text("Close", color = GirlPrimary) }
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close, null,
+                                tint = Color.White, modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                // ── Bottom: caption + view count ──────────────────────────────
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (story.text.isNotBlank()) {
+                        Text(
+                            story.text,
+                            fontSize = 17.sp, color = Color.White, lineHeight = 25.sp,
+                            fontWeight = FontWeight.Medium, textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(Color.White.copy(0.15f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.RemoveRedEye, null,
+                            tint = Color.White, modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "${story.viewCount} ${if (story.viewCount == 1) "view" else "views"}",
+                            fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -454,7 +603,9 @@ fun GirlCommunityScreen(
                                 .background(GirlPrimaryDim, RoundedCornerShape(12.dp))
                                 .border(1.dp, GirlBorder, RoundedCornerShape(12.dp))
                                 .clickable {
-                                    storyImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    storyImagePicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
                                 }
                                 .padding(horizontal = 14.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -662,7 +813,6 @@ fun GirlCommunityScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Photo picker
                     if (selectedPostImageUri == null) {
                         Row(
                             modifier = Modifier
@@ -670,7 +820,9 @@ fun GirlCommunityScreen(
                                 .background(GirlPrimaryDim, RoundedCornerShape(12.dp))
                                 .border(1.dp, GirlBorder, RoundedCornerShape(12.dp))
                                 .clickable {
-                                    postImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    postImagePicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
                                 }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -770,10 +922,7 @@ fun GirlCommunityScreen(
                             val isAdded = selectedPostTags.contains(tag)
                             Box(
                                 modifier = Modifier
-                                    .background(
-                                        if (isAdded) GirlPrimaryDim else GirlSurface,
-                                        RoundedCornerShape(20.dp)
-                                    )
+                                    .background(if (isAdded) GirlPrimaryDim else GirlSurface, RoundedCornerShape(20.dp))
                                     .border(1.dp, if (isAdded) GirlPrimary.copy(0.6f) else GirlBorder, RoundedCornerShape(20.dp))
                                     .clickable { if (!isAdded) selectedPostTags.add(tag) else selectedPostTags.remove(tag) }
                                     .padding(horizontal = 10.dp, vertical = 5.dp)
@@ -917,20 +1066,13 @@ private fun GirlLivePostCard(
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(post.likeCount.toString(), fontSize = 13.sp, color = GirlTextMid)
                 }
-
                 Spacer(modifier = Modifier.width(22.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onComment() }
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onComment() }) {
                     Icon(Icons.Default.ChatBubbleOutline, "Comment", tint = GirlTextMid, modifier = Modifier.size(17.dp))
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(post.commentCount.toString(), fontSize = 13.sp, color = GirlTextMid)
                 }
-
                 Spacer(modifier = Modifier.weight(1f))
-
                 Icon(Icons.Default.Send, "Share", tint = GirlTextMid, modifier = Modifier.size(18.dp).clickable { })
                 Spacer(modifier = Modifier.width(18.dp))
                 Icon(
