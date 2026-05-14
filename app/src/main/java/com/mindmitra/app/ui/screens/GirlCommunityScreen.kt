@@ -50,7 +50,10 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Send
@@ -67,6 +70,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -95,6 +100,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.compose.ui.platform.LocalContext
+import com.mindmitra.app.navigation.Routes
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
@@ -163,6 +169,7 @@ fun GirlCommunityScreen(
     var tagInput by remember { mutableStateOf("") }
     val selectedPostTags = remember { mutableStateListOf<String>() }
     var selectedPostImageUri by remember { mutableStateOf<Uri?>(null) }
+    var isPostPublic by remember { mutableStateOf(true) }
 
     val postImagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -198,7 +205,7 @@ fun GirlCommunityScreen(
 
     fun dismissPostDialog() {
         showPostDialog = false; newPostText = ""; tagInput = ""
-        selectedPostTags.clear(); selectedPostImageUri = null
+        selectedPostTags.clear(); selectedPostImageUri = null; isPostPublic = true
     }
 
     Scaffold(
@@ -227,6 +234,22 @@ fun GirlCommunityScreen(
                 contentPadding = PaddingValues(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // ── Header: title + friends button ────────────────────────────
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Community 💕", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = GirlTextDark)
+                        TextButton(onClick = { navController.navigate(Routes.GIRL_FRIENDS) }) {
+                            Icon(Icons.Default.Group, null, tint = GirlPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Friends", color = GirlPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
                 // ── Stories row ────────────────────────────────────────────────
                 item {
                     LazyRow(
@@ -949,6 +972,50 @@ fun GirlCommunityScreen(
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Privacy toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(GirlSurface, RoundedCornerShape(12.dp))
+                            .border(1.dp, if (isPostPublic) GirlPrimary.copy(0.4f) else GirlBorder, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (isPostPublic) Icons.Default.LockOpen else Icons.Default.Lock,
+                                null,
+                                tint = if (isPostPublic) GirlPrimary else GirlTextMid,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    if (isPostPublic) "Public" else "Friends only",
+                                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                    color = if (isPostPublic) GirlPrimary else GirlTextDark
+                                )
+                                Text(
+                                    if (isPostPublic) "Everyone can see this post" else "Only your friends will see this",
+                                    fontSize = 11.sp, color = GirlTextMid.copy(0.7f)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isPostPublic,
+                            onCheckedChange = { isPostPublic = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = GirlPrimary,
+                                uncheckedThumbColor = Color.White,
+                                uncheckedTrackColor = GirlTextMid.copy(0.4f)
+                            )
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Row(
@@ -969,6 +1036,7 @@ fun GirlCommunityScreen(
                                         content = text,
                                         tags = selectedPostTags.toList(),
                                         imageUri = selectedPostImageUri,
+                                        isPublic = isPostPublic,
                                         onDone = { dismissPostDialog() }
                                     )
                                 }

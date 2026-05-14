@@ -37,6 +37,7 @@ object AuthApi {
             UserProfile(
                 userId    = resp.getString("userId"),
                 name      = resp.getString("name"),
+                username  = resp.optString("username", ""),
                 email     = resp.getString("email"),
                 gender    = resp.getString("gender"),
                 createdAt = resp.optString("createdAt", "")
@@ -57,6 +58,7 @@ object AuthApi {
             UserProfile(
                 userId    = resp.getString("userId"),
                 name      = resp.getString("name"),
+                username  = resp.optString("username", ""),
                 email     = resp.getString("email"),
                 gender    = resp.getString("gender"),
                 createdAt = resp.optString("createdAt", "")

@@ -19,6 +19,10 @@ import kotlinx.coroutines.withContext
 
 class CommunityViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val authPrefs = application.getSharedPreferences("mindmitra_auth", 0)
+    private val currentUserId get() = authPrefs.getString("userId", "") ?: ""
+    private val currentGender get() = authPrefs.getString("gender", "") ?: ""
+
     // ── Feed state ────────────────────────────────────────────────────────────
     val posts = mutableStateListOf<CommunityPost>()
     var isLoading by mutableStateOf(false)
@@ -67,7 +71,11 @@ class CommunityViewModel(application: Application) : AndroidViewModel(applicatio
             } else {
                 isLoading = true
             }
-            CommunityRepository.getFeed(if (refresh) null else cursor)
+            CommunityRepository.getFeed(
+                cursor = if (refresh) null else cursor,
+                userId = currentUserId,
+                gender = currentGender
+            )
                 .onSuccess { page ->
                     posts.addAll(page.posts)
                     cursor = page.cursor
@@ -95,7 +103,7 @@ class CommunityViewModel(application: Application) : AndroidViewModel(applicatio
     fun loadStories() {
         viewModelScope.launch {
             storiesLoading = true
-            CommunityRepository.getStories()
+            CommunityRepository.getStories(userId = currentUserId, gender = currentGender)
                 .onSuccess { list ->
                     stories.clear()
                     stories.addAll(list)
@@ -116,7 +124,7 @@ class CommunityViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             isUploading = true
             val imageUrl = if (imageUri != null) uploadImageToS3(imageUri) else null
-            CommunityRepository.createStory(userId, userName, userAvatar, imageUrl, text)
+            CommunityRepository.createStory(userId, userName, userAvatar, imageUrl, text, currentGender)
                 .onSuccess { story ->
                     stories.add(0, story)
                     isUploading = false
@@ -130,7 +138,7 @@ class CommunityViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // ── Create post (text-only or with image) ─────────────────────────────────
+    // ── Create post ───────────────────────────────────────────────────────────
 
     fun createPost(
         userId: String,
@@ -139,14 +147,18 @@ class CommunityViewModel(application: Application) : AndroidViewModel(applicatio
         content: String,
         tags: List<String>,
         imageUri: Uri? = null,
+        isPublic: Boolean = true,
         onDone: () -> Unit = {}
     ) {
         viewModelScope.launch {
             isUploading = imageUri != null
             val imageUrl = if (imageUri != null) uploadImageToS3(imageUri) else null
             isUploading = false
-            CommunityRepository.createPost(userId, userName, userAvatar, content, tags, imageUrl)
-                .onSuccess { newPost -> posts.add(0, newPost) }
+            CommunityRepository.createPost(userId, userName, userAvatar, content, tags, imageUrl, isPublic, currentGender)
+                .onSuccess { newPost ->
+                    // Only add to feed if it would be visible (public, or private and we're the author)
+                    posts.add(0, newPost)
+                }
                 .onFailure { feedError = it.message }
             onDone()
         }

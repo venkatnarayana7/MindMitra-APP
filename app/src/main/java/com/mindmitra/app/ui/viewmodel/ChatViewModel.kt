@@ -9,6 +9,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mindmitra.app.data.ApiMessage
 import com.mindmitra.app.data.GroqService
+import com.mindmitra.app.data.chat.ChatDatabase
+import com.mindmitra.app.data.chat.ChatHistoryEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 // ─── Message model ───────────────────────────────────────────────────────────
@@ -24,7 +27,6 @@ data class ChatMessage(
 )
 
 // ─── On-device crisis keyword filter ─────────────────────────────────────────
-// Fires BEFORE any API call — helpline is shown in <100ms, no network needed.
 
 private val CRISIS_KEYWORDS = listOf(
     "suicide", "suicidal", "kill myself", "end my life", "end it all",
@@ -34,9 +36,6 @@ private val CRISIS_KEYWORDS = listOf(
     "marna chahta", "marna chahti", "khud ko hurt", "jaan dena",
     "khud ko khatam", "jeena nahi chahta"
 )
-
-// ─── MindMitra system prompt ──────────────────────────────────────────────────
-// Structured per PRD v3 Section 9.2 — loaded from here at cold start.
 
 private const val SYSTEM_PROMPT = """You are MindMitra, a compassionate mental wellness companion built for Indian users. You speak with warmth, cultural sensitivity, and zero clinical jargon. You are not a therapist. You are a caring friend who understands modern Indian life pressures.
 
@@ -84,28 +83,81 @@ Only include the tag when you are actually suggesting that activity — not on e
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val prefs = application.getSharedPreferences("mindmitra_prefs", 0)
+    private val authPrefs = application.getSharedPreferences("mindmitra_auth", 0)
+    private val chatPrefs = application.getSharedPreferences("mindmitra_prefs", 0)
     private val groqService = GroqService()
+    private val db = ChatDatabase.get(application)
 
-    val messages = mutableStateListOf(
-        ChatMessage(
-            text = "Hey ${prefs.getString("user_name", "Jyoti")} 👋\nHow's your mind feeling today?",
-            isUser = false,
-            showQuickReplies = true,
-            quickReplies = listOf("I'm stressed", "I need motivation", "I'm doing okay")
-        )
-    )
+    val currentUserId: String get() = authPrefs.getString("userId", "local_user") ?: "local_user"
+    val currentUserName: String get() = authPrefs.getString("display_name", chatPrefs.getString("user_name", "Friend") ?: "Friend") ?: "Friend"
 
+    val messages = mutableStateListOf<ChatMessage>()
     var isLoading by mutableStateOf(false)
         private set
+    var historyLoaded by mutableStateOf(false)
+        private set
 
-    // Full conversation history sent to Groq on every request (includes system prompt)
+    // Full conversation history sent to Groq (includes system prompt + loaded context)
     private val apiHistory = mutableListOf(ApiMessage("system", SYSTEM_PROMPT))
+
+    init {
+        loadHistory()
+    }
+
+    private fun loadHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val history = db.chatDao().getHistory(currentUserId)
+            if (history.isEmpty()) {
+                // Fresh account — show greeting
+                messages.add(
+                    ChatMessage(
+                        text = "Hey $currentUserName 👋\nHow's your mind feeling today?",
+                        isUser = false,
+                        showQuickReplies = true,
+                        quickReplies = listOf("I'm stressed", "I need motivation", "I'm doing okay")
+                    )
+                )
+            } else {
+                // Restore display history
+                history.forEach { entity ->
+                    messages.add(
+                        ChatMessage(
+                            id = entity.id,
+                            text = entity.content,
+                            isUser = entity.role == "user",
+                            isCrisis = entity.role == "crisis"
+                        )
+                    )
+                }
+                // Load last 10 messages into Groq context for continuity
+                history.takeLast(10)
+                    .filter { it.role == "user" || it.role == "assistant" }
+                    .forEach { apiHistory.add(ApiMessage(it.role, it.content)) }
+            }
+            historyLoaded = true
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.chatDao().clearHistory(currentUserId)
+            messages.clear()
+            apiHistory.clear()
+            apiHistory.add(ApiMessage("system", SYSTEM_PROMPT))
+            messages.add(
+                ChatMessage(
+                    text = "Hey $currentUserName 👋\nHow's your mind feeling today?",
+                    isUser = false,
+                    showQuickReplies = true,
+                    quickReplies = listOf("I'm stressed", "I need motivation", "I'm doing okay")
+                )
+            )
+        }
+    }
 
     fun sendMessage(userText: String) {
         if (userText.isBlank()) return
 
-        // Collapse any visible quick reply buttons from the last bot message
         val lastBotIndex = messages.indexOfLast { !it.isUser && it.showQuickReplies }
         if (lastBotIndex >= 0) {
             messages[lastBotIndex] = messages[lastBotIndex].copy(
@@ -114,61 +166,57 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        messages.add(ChatMessage(text = userText, isUser = true))
+        val userMsg = ChatMessage(text = userText, isUser = true)
+        messages.add(userMsg)
+        saveToDb(userText, "user")
 
-        // ── On-device L1 crisis check (fires before any network call) ──────────
+        // ── On-device L1 crisis check ──────────────────────────────────────
         if (CRISIS_KEYWORDS.any { userText.lowercase().contains(it) }) {
-            messages.add(
-                ChatMessage(
-                    text = "I'm really glad you reached out. What you're feeling matters, and you don't have to face this alone. Please contact:\n\n📞 iCall (TISS): 9152987821\n📞 Vandrevala Foundation: 1860-2662-345\n\nThey're available 24/7 and will listen without judgment. Please reach out right now. 💙",
-                    isUser = false,
-                    isCrisis = true
-                )
-            )
+            val crisisText = "I'm really glad you reached out. What you're feeling matters, and you don't have to face this alone. Please contact:\n\n📞 iCall (TISS): 9152987821\n📞 Vandrevala Foundation: 1860-2662-345\n\nThey're available 24/7 and will listen without judgment. Please reach out right now. 💙"
+            messages.add(ChatMessage(text = crisisText, isUser = false, isCrisis = true))
+            saveToDb(crisisText, "crisis")
             return
         }
 
-        // ── Send to Groq API ──────────────────────────────────────────────────
         apiHistory.add(ApiMessage("user", userText))
 
         viewModelScope.launch {
             isLoading = true
-            // Show animated typing indicator
             val typingMsg = ChatMessage(text = "", isUser = false, isTyping = true)
             messages.add(typingMsg)
 
             try {
                 val rawResponse = groqService.chat(apiHistory)
-
-                // Strip suggestion type tags from display text, keep for potential routing
                 val cleanText = rawResponse
                     .replace(Regex("\\[TYPE:(BREATHING|MEDITATION|MOTIVATIONAL)]"), "")
                     .trim()
-
                 apiHistory.add(ApiMessage("assistant", rawResponse))
-
-                // Remove typing indicator and show real response
                 messages.removeIf { it.isTyping }
                 messages.add(ChatMessage(text = cleanText, isUser = false))
-
+                saveToDb(cleanText, "assistant")
             } catch (e: Exception) {
                 messages.removeIf { it.isTyping }
-                val userMsg = when {
+                val userMsg2 = when {
                     e.message?.contains("401") == true ->
-                        "API key expired or invalid. Get a new key at console.groq.com/keys and update GroqService.kt 🔑"
+                        "API key expired or invalid. Get a new key at console.groq.com/keys 🔑"
                     e.message?.contains("429") == true ->
                         "Too many messages — please wait a moment and try again. ⏳"
                     e.message?.contains("model") == true || e.message?.contains("404") == true ->
-                        "Model unavailable (${e.message}). Try updating the model in GroqService.kt 🤖"
+                        "Model unavailable. Please try again later. 🤖"
                     e.message?.contains("timeout") == true || e.message?.contains("connect") == true ->
-                        "No internet connection. Please check your network and try again. 📶"
-                    else ->
-                        "Error: ${e.message}"
+                        "No internet connection. Please check your network. 📶"
+                    else -> "Something went wrong. Please try again."
                 }
-                messages.add(ChatMessage(text = userMsg, isUser = false))
+                messages.add(ChatMessage(text = userMsg2, isUser = false))
             } finally {
                 isLoading = false
             }
+        }
+    }
+
+    private fun saveToDb(content: String, role: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.chatDao().insert(ChatHistoryEntity(userId = currentUserId, role = role, content = content))
         }
     }
 }

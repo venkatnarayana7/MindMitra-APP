@@ -13,9 +13,11 @@ import com.mindmitra.app.ui.screens.AuthScreen
 import com.mindmitra.app.ui.screens.BoyJournalScreen
 import com.mindmitra.app.ui.screens.BreathingScreen
 import com.mindmitra.app.ui.screens.CommunityScreen
+import com.mindmitra.app.ui.screens.FriendsScreen
 import com.mindmitra.app.ui.screens.GirlBreathingScreen
 import com.mindmitra.app.ui.screens.GirlChatScreen
 import com.mindmitra.app.ui.screens.GirlCommunityScreen
+import com.mindmitra.app.ui.screens.GirlFriendsScreen
 import com.mindmitra.app.ui.screens.GirlHomeScreen
 import com.mindmitra.app.ui.screens.GirlJournalScreen
 import com.mindmitra.app.ui.screens.GirlMoodTrackerScreen
@@ -45,6 +47,7 @@ object Routes {
     const val BREATHING     = "breathing"
     const val ACHIEVEMENTS  = "achievements"
     const val STREAK_MAP    = "streak_map"
+    const val FRIENDS       = "friends"
 
     // Girl (pink) app
     const val GIRL_HOME         = "girl_home"
@@ -55,6 +58,7 @@ object Routes {
     const val GIRL_PROFILE      = "girl_profile"
     const val GIRL_SETTINGS     = "girl_settings"
     const val GIRL_BREATHING    = "girl_breathing"
+    const val GIRL_FRIENDS      = "girl_friends"
 }
 
 @Composable
@@ -148,6 +152,10 @@ fun NavGraph(navController: NavHostController) {
             StreakMapScreen(navController = navController, userViewModel = userViewModel)
         }
 
+        composable(Routes.FRIENDS) {
+            FriendsScreen(navController = navController)
+        }
+
         // ── Girl app ─────────────────────────────────────────────────────────
 
         composable(Routes.GIRL_HOME) {
@@ -180,6 +188,10 @@ fun NavGraph(navController: NavHostController) {
 
         composable(Routes.GIRL_BREATHING) {
             GirlBreathingScreen(navController = navController, userViewModel = userViewModel)
+        }
+
+        composable(Routes.GIRL_FRIENDS) {
+            GirlFriendsScreen(navController = navController)
         }
     }
 }

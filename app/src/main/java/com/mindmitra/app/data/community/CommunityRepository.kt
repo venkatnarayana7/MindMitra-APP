@@ -2,8 +2,8 @@ package com.mindmitra.app.data.community
 
 object CommunityRepository {
 
-    suspend fun getFeed(cursor: String? = null) =
-        CommunityApi.getFeed(cursor)
+    suspend fun getFeed(cursor: String? = null, userId: String = "", gender: String = "") =
+        CommunityApi.getFeed(cursor, userId, gender)
 
     suspend fun createPost(
         userId: String,
@@ -11,8 +11,10 @@ object CommunityRepository {
         userAvatar: String,
         content: String,
         tags: List<String>,
-        imageUrl: String? = null
-    ) = CommunityApi.createPost(userId, userName, userAvatar, content, tags, imageUrl)
+        imageUrl: String? = null,
+        isPublic: Boolean = true,
+        gender: String = ""
+    ) = CommunityApi.createPost(userId, userName, userAvatar, content, tags, imageUrl, null, isPublic, gender)
 
     suspend fun toggleLike(postId: String, userId: String, action: String) =
         CommunityApi.toggleLike(postId, userId, action)
@@ -37,14 +39,15 @@ object CommunityRepository {
     suspend fun recordStoryView(storyId: String, userId: String) =
         CommunityApi.recordStoryView(storyId, userId)
 
-    suspend fun getStories() =
-        CommunityApi.getStories()
+    suspend fun getStories(userId: String = "", gender: String = "") =
+        CommunityApi.getStories(userId, gender)
 
     suspend fun createStory(
         userId: String,
         userName: String,
         userAvatar: String,
         imageUrl: String?,
-        text: String
-    ) = CommunityApi.createStory(userId, userName, userAvatar, imageUrl, text)
+        text: String,
+        gender: String = ""
+    ) = CommunityApi.createStory(userId, userName, userAvatar, imageUrl, text, gender)
 }

@@ -14,6 +14,8 @@ data class CommunityPost(
     val commentCount: Int,
     val createdAt: String,
     val dominantColor: String,
+    val isPublic: Boolean = true,
+    val gender: String? = null,
     val isLikedByMe: Boolean = false,
     val isSaved: Boolean = false
 )

@@ -24,10 +24,14 @@ object CommunityApi {
 
     // ── Feed ─────────────────────────────────────────────────────────────────
 
-    suspend fun getFeed(cursor: String? = null): Result<FeedPage> = io {
+    suspend fun getFeed(cursor: String? = null, userId: String = "", gender: String = ""): Result<FeedPage> = io {
         val url = buildString {
             append("$BASE/posts")
-            if (cursor != null) append("?cursor=$cursor")
+            val params = mutableListOf<String>()
+            if (cursor != null) params += "cursor=$cursor"
+            if (userId.isNotBlank()) params += "userId=$userId"
+            if (gender.isNotBlank()) params += "gender=$gender"
+            if (params.isNotEmpty()) append("?${params.joinToString("&")}")
         }
         val body = get(url)
         val posts = parsePosts(body.getJSONArray("posts"))
@@ -44,7 +48,9 @@ object CommunityApi {
         content: String,
         tags: List<String>,
         imageUrl: String? = null,
-        imageKey: String? = null
+        imageKey: String? = null,
+        isPublic: Boolean = true,
+        gender: String = ""
     ): Result<CommunityPost> = io {
         val payload = JSONObject().apply {
             put("userId", userId)
@@ -55,6 +61,8 @@ object CommunityApi {
             if (imageUrl != null) put("imageUrl", imageUrl)
             if (imageKey != null) put("imageKey", imageKey)
             put("hasImage", imageUrl != null || imageKey != null)
+            put("isPublic", isPublic)
+            if (gender.isNotBlank()) put("gender", gender)
         }
         val resp = post("$BASE/posts", payload)
         parsePost(resp.getJSONObject("post"))
@@ -101,8 +109,15 @@ object CommunityApi {
 
     // ── Stories ──────────────────────────────────────────────────────────────
 
-    suspend fun getStories(): Result<List<CommunityStory>> = io {
-        val body = get("$BASE/stories")
+    suspend fun getStories(userId: String = "", gender: String = ""): Result<List<CommunityStory>> = io {
+        val url = buildString {
+            append("$BASE/stories")
+            val params = mutableListOf<String>()
+            if (userId.isNotBlank()) params += "userId=$userId"
+            if (gender.isNotBlank()) params += "gender=$gender"
+            if (params.isNotEmpty()) append("?${params.joinToString("&")}")
+        }
+        val body = get(url)
         val arr = body.getJSONArray("stories")
         (0 until arr.length()).map { parseStory(arr.getJSONObject(it)) }
     }
@@ -118,7 +133,8 @@ object CommunityApi {
         userName: String,
         userAvatar: String,
         imageUrl: String?,
-        text: String
+        text: String,
+        gender: String = ""
     ): Result<CommunityStory> = io {
         val payload = JSONObject().apply {
             put("userId", userId)
@@ -126,6 +142,7 @@ object CommunityApi {
             put("userAvatar", userAvatar)
             if (imageUrl != null) put("imageUrl", imageUrl)
             put("text", text)
+            if (gender.isNotBlank()) put("gender", gender)
         }
         val resp = post("$BASE/stories", payload)
         parseStory(resp.getJSONObject("story"))
@@ -207,7 +224,9 @@ object CommunityApi {
             likeCount     = j.optInt("likeCount", 0),
             commentCount  = j.optInt("commentCount", 0),
             createdAt     = j.optString("createdAt", ""),
-            dominantColor = j.optString("dominantColor", "#1E1B3C")
+            dominantColor = j.optString("dominantColor", "#1E1B3C"),
+            isPublic      = j.optBoolean("isPublic", true),
+            gender        = j.takeIf { !it.isNull("gender") }?.optString("gender")
         )
     }
 

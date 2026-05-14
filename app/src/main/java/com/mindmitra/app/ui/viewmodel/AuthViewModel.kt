@@ -78,6 +78,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit()
             .putString("userId", user.userId)
             .putString("display_name", user.name)
+            .putString("username", user.username)
             .putString("email", user.email)
             .putString("gender", user.gender)
             .putBoolean("is_logged_in", true)
@@ -90,6 +91,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     val storedEmail: String get() = prefs.getString("email", "") ?: ""
     val storedGender: String get() = prefs.getString("gender", "") ?: ""
     val storedUserId: String get() = prefs.getString("userId", "") ?: ""
+    val storedUsername: String get() = prefs.getString("username", "") ?: ""
 
     fun logout() {
         isLoggedIn = false
